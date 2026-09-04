@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhishGuard ML — Cảnh báo An toàn</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: Inter, system-ui, -apple-system, sans-serif;
+        }
+        * { box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            margin: 0;
+            padding: 32px 20px;
+            display: grid;
+            place-items: center;
+            background: radial-gradient(circle at top, #7f1d1d, #180202 75%);
+            color: #fff;
+        }
+        main {
+            width: min(680px, 100%);
+            padding: clamp(28px, 6vw, 48px);
+            border: 1px solid rgba(255,255,255,.18);
+            border-radius: 24px;
+            background: rgba(15, 3, 3, 0.85);
+            box-shadow: 0 24px 80px rgba(0,0,0,.6);
+            text-align: center;
+            backdrop-filter: blur(12px);
+        }
+        .icon {
+            width: 76px;
+            height: 76px;
+            margin: 0 auto 22px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            background: #ef4444;
+            box-shadow: 0 0 30px rgba(239, 68, 68, 0.6);
+            font-size: 42px;
+            font-weight: 900;
+        }
+        h1 { margin: 0 0 14px; font-size: clamp(26px, 5vw, 42px); line-height: 1.1; font-weight: 800; }
+        .lead { color: #fecaca; font-size: 17px; line-height: 1.6; }
+        .url {
+            margin: 22px 0 10px;
+            padding: 14px 16px;
+            overflow: hidden;
+            border-radius: 10px;
+            background: rgba(0,0,0,.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fde68a;
+            font-family: ui-monospace, monospace;
+            font-size: 14px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: left;
+        }
+        .confidence { margin: 0 0 24px; color: #cbd5e1; font-size: 14px; font-weight: 600; }
+        .advice {
+            margin: 22px 0;
+            padding-left: 22px;
+            color: #e5e7eb;
+            line-height: 1.7;
+            text-align: left;
+            font-size: 14px;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 24px;
+        }
+        button {
+            padding: 12px 20px;
+            border: 0;
+            border-radius: 10px;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        button:focus-visible { outline: 3px solid #fde68a; outline-offset: 3px; }
+        .btn-safe { background: #ffffff; color: #7f1d1d; }
+        .btn-safe:hover { background: #f1f5f9; }
+        .btn-whitelist { background: rgba(59, 130, 246, 0.3); border: 1px solid #3b82f6; color: #93c5fd; }
+        .btn-whitelist:hover { background: rgba(59, 130, 246, 0.5); }
+        .btn-danger { border: 1px solid rgba(255,255,255,.3); background: transparent; color: #f8fafc; }
+        .btn-danger:hover { background: rgba(255,255,255,.1); }
+    </style>
+</head>
+<body>
+    <main>
+        <div class="icon" aria-hidden="true">!</div>
+        <h1>Phát hiện nguy cơ lừa đảo!</h1>
+        <p class="lead">Mô hình AI nhận diện trang web này có đặc trưng lừa đảo (Phishing). Hãy cẩn trọng trước khi nhập mật khẩu hay thông tin cá nhân.</p>
+        
+        <div id="badUrl" class="url">Không xác định được địa chỉ</div>
+        <p id="confidence" class="confidence" hidden></p>
+        
+        <ul class="advice">
+            <li>Kiểm tra kỹ lại tên miền và các dấu hiệu sai lỗi chính tả.</li>
+            <li>Không nhập mã OTP, mật khẩu ngân hàng hoặc thông tin tài khoản tại trang này.</li>
+            <li>Nếu đây là tên miền tin tưởng của bạn, bạn có thể thêm vào Whitelist để bỏ qua cảnh báo.</li>
+        </ul>
+
+        <div class="actions">
+            <button id="backBtn" class="btn-safe" type="button">Quay lại an toàn</button>
+            <button id="whitelistBtn" class="btn-whitelist" type="button">Thêm vào Whitelist</button>
+            <button id="continueBtn" class="btn-danger" type="button">Vẫn tiếp tục (Rủi ro 1 lần)</button>
+        </div>
+    </main>
+    <script src="warning.js"></script>
+</body>
+</html>

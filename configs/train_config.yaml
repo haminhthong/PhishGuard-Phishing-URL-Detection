@@ -1,0 +1,23 @@
+# Cấu hình huấn luyện và thử nghiệm mô hình PhishGuard ML
+random_seed: 42
+feature_contract: lexical-v1
+
+split:
+  strategy: registered-domain
+  train: 0.70
+  validation: 0.15
+  test: 0.15
+
+model:
+  type: XGBClassifier
+  max_depth: 5
+  learning_rate: 0.1
+  n_estimators: 300
+  eval_metric: logloss
+  random_state: 42
+
+threshold_search:
+  metric: pr_auc
+  risk_levels:
+    high: 0.80
+    medium: 0.55

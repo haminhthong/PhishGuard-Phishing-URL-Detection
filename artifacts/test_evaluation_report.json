@@ -1,0 +1,24 @@
+{
+  "dataset_name": "Test Set (Domain-Grouped Split)",
+  "test_size_rows": 55384,
+  "test_unique_domains": 16771,
+  "model_type": "XGBClassifier",
+  "threshold": 0.57,
+  "metrics": {
+    "accuracy": 0.9776650296114401,
+    "precision": 0.9643075667958393,
+    "recall": 0.816580310880829,
+    "f1": 0.8843168427943514,
+    "roc_auc": 0.9712021006078859,
+    "pr_auc": 0.9239107116051454,
+    "false_positive_rate": 0.003528652659595919,
+    "false_negative_rate": 0.18341968911917098,
+    "brier_score": 0.01906594844930319,
+    "true_negatives": 49419,
+    "false_positives": 175,
+    "false_negatives": 1062,
+    "true_positives": 4728,
+    "p50_latency_ms": 0.6691,
+    "p95_latency_ms": 0.7232
+  }
+}

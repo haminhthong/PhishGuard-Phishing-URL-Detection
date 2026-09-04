@@ -1,0 +1,23 @@
+{
+  "model_version": "3.0.0",
+  "model_type": "XGBClassifier",
+  "feature_contract": "lexical-v1",
+  "feature_count": 12,
+  "threshold": 0.57,
+  "training_seed": 42,
+  "training_date": "2026-09-03",
+  "model_sha256": "a06130a29e60fb5f1a453d20456420dcd0165da3a5369106a0d71cb69c29bb66",
+  "dataset_checksums": {
+    "legitimate": "4bb445fe07d1d639e09c948c79b2ce322ff503ec19ab0a02bda49270f3bd3387",
+    "phishing": "162807b56cc0c5e70d7b75ce9c7077916ef57a25662d25503dbebda5ae8ebd43"
+  },
+  "test_metrics": {
+    "pr_auc": 0.9239107116051454,
+    "recall": 0.816580310880829,
+    "precision": 0.9643075667958393,
+    "f1": 0.8843168427943514,
+    "false_positive_rate": 0.003528652659595919,
+    "false_negative_rate": 0.18341968911917098,
+    "p95_latency_ms": 0.8004
+  }
+}

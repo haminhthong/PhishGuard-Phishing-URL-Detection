@@ -1,0 +1,439 @@
+[
+  {
+    "url": "https://example.com/login",
+    "description": "Standard HTTPS URL",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 0,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 5
+    }
+  },
+  {
+    "url": "http://192.168.1.1/admin/login",
+    "description": "IPv4 address hostname",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 1,
+      "Tiny_URL": 0,
+      "TLD_Length": 0,
+      "Digit_Count": 8,
+      "Dot_Count": 3,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 2,
+      "FD_Length": 5
+    }
+  },
+  {
+    "url": "http://[2001:db8::1]/index.html",
+    "description": "IPv6 address hostname",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 1,
+      "Tiny_URL": 0,
+      "TLD_Length": 0,
+      "Digit_Count": 6,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 10
+    }
+  },
+  {
+    "url": "https://bit.ly/3xYz12",
+    "description": "Shortening service URL (bit.ly)",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 1,
+      "TLD_Length": 2,
+      "Digit_Count": 3,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 6
+    }
+  },
+  {
+    "url": "http://tinyurl.com/secure-login-2026",
+    "description": "Shortening service URL (tinyurl.com)",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 1,
+      "TLD_Length": 3,
+      "Digit_Count": 4,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 2,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 17
+    }
+  },
+  {
+    "url": "https://xn--e1afmkfd.xn--p1ai/auth",
+    "description": "Punycode domain",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 8,
+      "Digit_Count": 2,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 4,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 4
+    }
+  },
+  {
+    "url": "https://tiếngviệt.vn/bai-viet/123",
+    "description": "Unicode path and domain",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 2,
+      "Digit_Count": 3,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 1,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 2,
+      "FD_Length": 8
+    }
+  },
+  {
+    "url": "https://user:password@example.com/login",
+    "description": "URL containing @ sign in userinfo",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 0,
+      "Dot_Count": 1,
+      "At_Count": 1,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 5
+    }
+  },
+  {
+    "url": "https://example.com/path//to//resource",
+    "description": "Redirection pattern double slashes in path",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 0,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 1,
+      "Depth": 3,
+      "FD_Length": 4
+    }
+  },
+  {
+    "url": "https://example.com:8443/api/v1/user?id=100&action=verify",
+    "description": "URL with explicit port and query parameters",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 8,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 2,
+      "Redirection": 0,
+      "Depth": 3,
+      "FD_Length": 3
+    }
+  },
+  {
+    "url": "https://example.org/docs/page.html#section-2",
+    "description": "URL with fragment identifier",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 1,
+      "Dot_Count": 2,
+      "At_Count": 0,
+      "Hyphen_Count": 1,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 2,
+      "FD_Length": 4
+    }
+  },
+  {
+    "url": "https://example.com/search%20results%21?q=phishing%20test",
+    "description": "Percent encoded characters in path and query",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 6,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 3,
+      "Equal_Count": 1,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 19
+    }
+  },
+  {
+    "url": "https://a.b.c.d.e.subdomain.example.co.uk/very/deep/path/structure/file.aspx",
+    "description": "Deep subdomains and deep path structure",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 5,
+      "Digit_Count": 0,
+      "Dot_Count": 9,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 5,
+      "FD_Length": 4
+    }
+  },
+  {
+    "url": "http://paypal.com-verify-account.security-update.info/login.php",
+    "description": "Suspicious hyphens and brand impersonation in hostname",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 4,
+      "Digit_Count": 0,
+      "Dot_Count": 4,
+      "At_Count": 0,
+      "Hyphen_Count": 3,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 9
+    }
+  },
+  {
+    "url": "https://login.microsoftonline.com/common/oauth2/authorize?client_id=12345&redirect_uri=https://evil.com/steal",
+    "description": "URL with embedded protocol in query parameter",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 6,
+      "Dot_Count": 3,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 2,
+      "Redirection": 1,
+      "Depth": 3,
+      "FD_Length": 6
+    }
+  },
+  {
+    "url": "http://10.0.0.1:8080/dashboard?token=abc-123-def",
+    "description": "Internal IPv4 with non-standard port and query token",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 1,
+      "Tiny_URL": 0,
+      "TLD_Length": 0,
+      "Digit_Count": 12,
+      "Dot_Count": 3,
+      "At_Count": 0,
+      "Hyphen_Count": 2,
+      "Per_Count": 0,
+      "Equal_Count": 1,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 9
+    }
+  },
+  {
+    "url": "https://t.co/xyz9876543",
+    "description": "Shortening service URL (t.co)",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 1,
+      "TLD_Length": 2,
+      "Digit_Count": 7,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 10
+    }
+  },
+  {
+    "url": "https://is.gd/shortlink",
+    "description": "Shortening service URL (is.gd)",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 1,
+      "TLD_Length": 2,
+      "Digit_Count": 0,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 9
+    }
+  },
+  {
+    "url": "http://cutt.ly/campaign2026",
+    "description": "Shortening service URL (cutt.ly)",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 1,
+      "TLD_Length": 2,
+      "Digit_Count": 4,
+      "Dot_Count": 1,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 12
+    }
+  },
+  {
+    "url": "https://bank-of-america.secure-session-id-998822.com/auth/login",
+    "description": "Long domain name with multiple hyphens and digits",
+    "is_valid_url": true,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 6,
+      "Dot_Count": 2,
+      "At_Count": 0,
+      "Hyphen_Count": 5,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 2,
+      "FD_Length": 4
+    }
+  },
+  {
+    "url": "invalid_url_without_scheme",
+    "description": "Invalid URL missing HTTP/HTTPS scheme",
+    "is_valid_url": false,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 0,
+      "Digit_Count": 0,
+      "Dot_Count": 0,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 26
+    }
+  },
+  {
+    "url": "ftp://fileserver.example.com/download.zip",
+    "description": "Non-HTTP/HTTPS protocol scheme (FTP)",
+    "is_valid_url": false,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 3,
+      "Digit_Count": 0,
+      "Dot_Count": 3,
+      "At_Count": 0,
+      "Hyphen_Count": 0,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 1,
+      "FD_Length": 12
+    }
+  },
+  {
+    "url": "https:///missing-host/login",
+    "description": "Invalid URL missing hostname",
+    "is_valid_url": false,
+    "expected_features": {
+      "Having_IP": 0,
+      "Tiny_URL": 0,
+      "TLD_Length": 0,
+      "Digit_Count": 0,
+      "Dot_Count": 0,
+      "At_Count": 0,
+      "Hyphen_Count": 1,
+      "Per_Count": 0,
+      "Equal_Count": 0,
+      "Redirection": 0,
+      "Depth": 2,
+      "FD_Length": 12
+    }
+  }
+]

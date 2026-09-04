@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "PhishGuard ML",
+  "version": "2.2.0",
+  "description": "Cảnh báo sớm URL lừa đảo bằng mô hình Machine Learning XGBoost",
+  "icons": {
+    "128": "icon.png"
+  },
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "PhishGuard ML — Bảo vệ trình duyệt",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["warning.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
