@@ -1,0 +1,74 @@
+{
+  "version": "brand-terms-v1",
+  "updated_at": "2026-09-05",
+  "brands": [
+    {
+      "name": "paypal",
+      "official_domains": ["paypal.com", "paypal.me"]
+    },
+    {
+      "name": "google",
+      "official_domains": ["google.com", "google.com.vn", "google.co.in", "google.co.uk", "gmail.com", "youtube.com"]
+    },
+    {
+      "name": "microsoft",
+      "official_domains": ["microsoft.com", "live.com", "office.com", "outlook.com", "office365.com"]
+    },
+    {
+      "name": "apple",
+      "official_domains": ["apple.com", "icloud.com"]
+    },
+    {
+      "name": "amazon",
+      "official_domains": ["amazon.com", "amazon.co.uk", "amazon.de", "aws.amazon.com"]
+    },
+    {
+      "name": "facebook",
+      "official_domains": ["facebook.com", "fb.com", "meta.com", "instagram.com", "whatsapp.com"]
+    },
+    {
+      "name": "netflix",
+      "official_domains": ["netflix.com"]
+    },
+    {
+      "name": "chase",
+      "official_domains": ["chase.com"]
+    },
+    {
+      "name": "wellsfargo",
+      "official_domains": ["wellsfargo.com"]
+    },
+    {
+      "name": "bankofamerica",
+      "official_domains": ["bankofamerica.com", "bofa.com"]
+    },
+    {
+      "name": "binance",
+      "official_domains": ["binance.com", "binance.us"]
+    },
+    {
+      "name": "coinbase",
+      "official_domains": ["coinbase.com"]
+    },
+    {
+      "name": "steam",
+      "official_domains": ["steampowered.com", "steamcommunity.com"]
+    },
+    {
+      "name": "dhl",
+      "official_domains": ["dhl.com"]
+    },
+    {
+      "name": "fedex",
+      "official_domains": ["fedex.com"]
+    },
+    {
+      "name": "ups",
+      "official_domains": ["ups.com"]
+    },
+    {
+      "name": "allegro",
+      "official_domains": ["allegro.pl", "allegrolokalnie.pl"]
+    }
+  ]
+}

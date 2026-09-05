@@ -89,9 +89,60 @@ class FeatureExtractionTests(unittest.TestCase):
 
     def test_handles_unicode_or_malformed_urls_gracefully(self) -> None:
         """Kiểm tra không bị sập khi gặp URL chứa unicode hoặc cú pháp bất thường."""
-        features = extract_features("https://tiếngviệt.vn/đăng-nhập")
+        features = extract_features("https://tiếngviệt.vn/đăng-nhập", contract="lexical-v1")
         self.assertIsInstance(features, dict)
         self.assertEqual(len(features), 12)
+
+    def test_lexical_v2_contract_and_structure(self) -> None:
+        """Kiểm tra hợp đồng lexical-v2 đủ 25 đặc trưng theo 4 nhóm."""
+        from phishguard.features import FEATURE_COLUMNS_V2, extract_features_v2
+
+        features_v2 = extract_features_v2("https://sub.example.com/path/to/page?id=123&test=abc")
+        self.assertEqual(len(features_v2), 25)
+        self.assertEqual(tuple(features_v2.keys()), FEATURE_COLUMNS_V2)
+        self.assertEqual(features_v2["subdomain_count"], 1)
+        self.assertEqual(features_v2["path_depth"], 3)
+        self.assertGreater(features_v2["url_entropy"], 0.0)
+        self.assertGreater(features_v2["digit_ratio"], 0.0)
+
+    def test_brand_impersonation_detection(self) -> None:
+        """Kiểm tra phát hiện mạo danh thương hiệu (Brand Abuse) trong subdomain và path."""
+        from phishguard.features import extract_features_v2
+
+        # Phishing mạo danh PayPal trong subdomain
+        phish_paypal = "https://paypal.com.account-verify.attacker.com/login"
+        f_phish = extract_features_v2(phish_paypal)
+        self.assertEqual(f_phish["brand_in_subdomain"], 1)
+        self.assertEqual(f_phish["brand_not_registered_domain"], 1)
+
+        # Domain PayPal hợp lệ
+        legit_paypal = "https://www.paypal.com/signin"
+        f_legit = extract_features_v2(legit_paypal)
+        self.assertEqual(f_legit["brand_in_subdomain"], 0)
+        self.assertEqual(f_legit["brand_not_registered_domain"], 0)
+
+        # Phishing mạo danh Google trong path
+        phish_google_path = "https://evil-server.net/google/login/oauth2"
+        f_google = extract_features_v2(phish_google_path)
+        self.assertEqual(f_google["brand_in_path"], 1)
+        self.assertEqual(f_google["brand_not_registered_domain"], 1)
+
+    def test_punycode_and_suspicious_tld_features(self) -> None:
+        """Kiểm tra nhận diện punycode và tên miền TLD đáng ngờ."""
+        from phishguard.features import extract_features_v2
+
+        puny_url = "https://xn--e1afmkfd.xn--p1ai/path"
+        f_puny = extract_features_v2(puny_url)
+        self.assertEqual(f_puny["has_punycode"], 1)
+
+        suspicious_tld_url = "https://banking-secure-check.xyz/login"
+        f_suspicious = extract_features_v2(suspicious_tld_url)
+        self.assertEqual(f_suspicious["is_suspicious_tld"], 1)
+
+        normal_url = "https://normal-domain.com/path"
+        f_normal = extract_features_v2(normal_url)
+        self.assertEqual(f_normal["has_punycode"], 0)
+        self.assertEqual(f_normal["is_suspicious_tld"], 0)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Lớp quản lý LRU Cache an toàn cho môi trường đa luồng."""
+"""Lớp quản lý LRU Cache an toàn cho môi trường đa luồng với khóa định danh mô hình."""
 
 from __future__ import annotations
 
@@ -17,12 +17,16 @@ class PredictionCache:
         self.misses = 0
 
     @staticmethod
-    def hash_key(url: str) -> str:
-        """Băm SHA-256 URL để cache không lưu query string hoặc token ở dạng plain text."""
-        return hashlib.sha256(url.encode("utf-8")).hexdigest()
+    def hash_key(url: str, model_version: str = "default", feature_contract: str = "default") -> str:
+        """
+        Băm SHA-256 kết hợp model_version + feature_contract + URL.
+        Bảo đảm khi mô hình được nâng cấp, các bản ghi cũ sẽ không gây sai lệch verdict.
+        """
+        raw_key = f"{model_version}:{feature_contract}:{url}"
+        return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
-    def get(self, url: str) -> Any | None:
-        key = self.hash_key(url)
+    def get(self, url: str, model_version: str = "default", feature_contract: str = "default") -> Any | None:
+        key = self.hash_key(url, model_version, feature_contract)
         with self._lock:
             if key in self._cache:
                 self.hits += 1
@@ -31,8 +35,8 @@ class PredictionCache:
             self.misses += 1
             return None
 
-    def put(self, url: str, value: Any) -> None:
-        key = self.hash_key(url)
+    def put(self, url: str, value: Any, model_version: str = "default", feature_contract: str = "default") -> None:
+        key = self.hash_key(url, model_version, feature_contract)
         with self._lock:
             self._cache[key] = value
             self._cache.move_to_end(key)

@@ -219,7 +219,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
  * Lắng nghe sự kiện cập nhật URL của các Tab trong Chrome.
  */
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    if (changeInfo.status !== "loading" || !tab.url?.startsWith("http")) return;
+    // Chỉ bảo vệ giao thức HTTP và HTTPS; bỏ qua hoàn toàn chrome://, file://, extension://
+    if (changeInfo.status !== "loading" || !tab.url) return;
+    try {
+        const parsedUrl = new URL(tab.url);
+        if (!["http:", "https:"].includes(parsedUrl.protocol)) return;
+    } catch {
+        return;
+    }
 
     const storageData = await chrome.storage.local.get(KEYS.shieldEnabled);
     if (storageData[KEYS.shieldEnabled] === false) {
@@ -236,26 +243,38 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     pendingChecks.set(tabId, checkToken);
 
     try {
+        // Gửi full URL (kèm query string) qua localhost in-memory để trích xuất đặc trưng chính xác
         const result = await fetchPhishingPrediction(tab.url);
 
         if (pendingChecks.get(tabId) !== checkToken) return;
 
-        const score = result.model_score !== undefined ? result.model_score : result.confidence;
-        await recordScanHistory(tab.url, result.label, score, result.risk_level);
+        const score = result.model_score !== undefined ? result.model_score : (result.model?.score ?? 0.0);
+        const riskLevel = (result.risk?.level || result.risk_level || "low").toLowerCase();
+        const riskAction = (result.risk?.action || (riskLevel === "high" ? "warn" : riskLevel === "medium" ? "caution" : "allow")).toLowerCase();
 
-        if (result.label === 1) {
-            updateToolbarBadge(tabId, "WARN", "#ef4444");
+        // Chỉ lưu URL đã làm sạch (bỏ query & hash) vào lịch sử để bảo vệ quyền riêng tư
+        await recordScanHistory(tab.url, result.label, score, riskLevel);
+
+        if (riskLevel === "high" || riskAction === "warn") {
+            // HIGH RISK: Hiển thị badge ALERT và kích hoạt màn hình chặn cảnh báo (interstitial warning)
+            updateToolbarBadge(tabId, "ALERT", "#ef4444");
             chrome.tabs.sendMessage(tabId, {
                 type: "PHISHING_DETECTED",
                 url: tab.url,
                 model_score: score,
-                risk_level: result.risk_level
+                confidence: score,
+                risk_level: "high"
             }).catch(() => {});
+        } else if (riskLevel === "medium" || riskAction === "caution") {
+            // MEDIUM RISK: Soft warning qua toolbar badge cảnh báo, không gián đoạn luồng duyệt web
+            updateToolbarBadge(tabId, "WARN", "#f59e0b");
         } else {
+            // LOW RISK: Xác định an toàn lexical
             updateToolbarBadge(tabId, "SAFE", "#22c55e");
         }
     } catch (error) {
-        console.warn("Lỗi kết nối API phân tích URL (Hãy khởi chạy server FastAPI tại http://127.0.0.1:5000):", error);
+        // Fail-safe: Khi API offline, thông báo "Protection unavailable" qua badge ?, KHÔNG giả lập verdict an toàn
+        console.warn("Dịch vụ PhishGuard ML API offline hoặc không phản hồi:", error);
         updateToolbarBadge(tabId, "?", "#f59e0b");
     } finally {
         if (pendingChecks.get(tabId) === checkToken) {

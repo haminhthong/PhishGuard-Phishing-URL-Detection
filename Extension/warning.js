@@ -11,7 +11,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // Đọc tham số truyền tới từ query string
     const params = new URLSearchParams(window.location.search);
     const suspiciousUrl = params.get("url");
-    const confidence = Number(params.get("confidence"));
+    const rawScore = params.get("score") || params.get("confidence");
+    const confidence = Number(rawScore);
 
     // DOM Elements
     const urlElement = document.getElementById("badUrl");
@@ -26,9 +27,9 @@ document.addEventListener("DOMContentLoaded", () => {
         urlElement.title = suspiciousUrl;
     }
 
-    // Hiển thị % độ tin cậy dự đoán của mô hình XGBoost
+    // Hiển thị Điểm đánh giá rủi ro của mô hình Machine Learning
     if (Number.isFinite(confidence) && confidence >= 0 && confidence <= 1) {
-        confidenceElement.textContent = `Độ tin cậy của mô hình XGBoost: ${Math.round(confidence * 100)}%`;
+        confidenceElement.textContent = `Điểm rủi ro mô hình AI: ${(confidence * 100).toFixed(1)}%`;
         confidenceElement.hidden = false;
     }
 

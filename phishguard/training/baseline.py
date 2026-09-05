@@ -23,29 +23,40 @@ class RuleBasedPhishingClassifier(BaseEstimator, ClassifierMixin):
         return self
 
     def _compute_risk_score(self, row: pd.Series | np.ndarray) -> float:
-        # Giả định thứ tự hoặc tên cột theo FEATURE_COLUMNS:
-        # Having_IP, Tiny_URL, TLD_Length, Digit_Count, Dot_Count, At_Count,
-        # Hyphen_Count, Per_Count, Equal_Count, Redirection, Depth, FD_Length
-        if isinstance(row, pd.Series):
-            having_ip = row.get("Having_IP", 0)
-            tiny_url = row.get("Tiny_URL", 0)
-            at_count = row.get("At_Count", 0)
-            dot_count = row.get("Dot_Count", 0)
-            hyphen_count = row.get("Hyphen_Count", 0)
-            per_count = row.get("Per_Count", 0)
-            redirection = row.get("Redirection", 0)
-            depth = row.get("Depth", 0)
-        else:
-            having_ip = row[0]
-            tiny_url = row[1]
-            dot_count = row[4]
-            at_count = row[5]
-            hyphen_count = row[6]
-            per_count = row[7]
-            redirection = row[9]
-            depth = row[10]
-
         score = 0.0
+        if isinstance(row, pd.Series):
+            # Hỗ trợ cả contract v1 lẫn v2
+            having_ip = row.get("Having_IP", row.get("has_ip_address", 0))
+            tiny_url = row.get("Tiny_URL", row.get("uses_shortening_service", 0))
+            at_count = row.get("At_Count", row.get("at_count", 0))
+            dot_count = row.get("Dot_Count", row.get("dot_count", 0))
+            hyphen_count = row.get("Hyphen_Count", row.get("hyphen_count", 0))
+            per_count = row.get("Per_Count", row.get("query_length", 0))
+            redirection = row.get("Redirection", row.get("has_redirection_pattern", 0))
+            depth = row.get("Depth", row.get("path_depth", 0))
+            # Đặc trưng bảo mật bổ sung v2
+            brand_abuse = row.get("brand_not_registered_domain", 0)
+            punycode = row.get("has_punycode", 0)
+            subdomains = row.get("subdomain_count", 0)
+            suspicious_tld = row.get("is_suspicious_tld", 0)
+            if brand_abuse > 0:
+                score += 3.0
+            if punycode > 0:
+                score += 2.5
+            if subdomains > 2:
+                score += 1.5
+            if suspicious_tld > 0:
+                score += 1.5
+        else:
+            having_ip = row[0] if len(row) > 0 else 0
+            tiny_url = row[1] if len(row) > 1 else 0
+            dot_count = row[4] if len(row) > 4 else 0
+            at_count = row[5] if len(row) > 5 else 0
+            hyphen_count = row[6] if len(row) > 6 else 0
+            per_count = row[7] if len(row) > 7 else 0
+            redirection = row[9] if len(row) > 9 else 0
+            depth = row[10] if len(row) > 10 else 0
+
         if having_ip > 0:
             score += 2.5
         if tiny_url > 0:

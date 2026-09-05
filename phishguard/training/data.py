@@ -182,6 +182,69 @@ def split_by_domain(
     return splits
 
 
+@dataclass(frozen=True)
+class FourWayDatasetSplits:
+    """Bốn tập độc lập: Train (65%) / Validation (15%) / Calibration (10%) / Test (10%)."""
+
+    train: pd.DataFrame
+    validation: pd.DataFrame
+    calibration: pd.DataFrame
+    test: pd.DataFrame
+
+
+def split_by_domain_4way(
+    frame: pd.DataFrame,
+    *,
+    test_size: float = 0.10,
+    calibration_size: float = 0.10,
+    validation_size: float = 0.15,
+    random_state: int = 42,
+) -> FourWayDatasetSplits:
+    """
+    Chia 4 tập theo domain với zero overlap:
+    Train: Model training
+    Validation: Model selection & hyperparameter tuning
+    Calibration: Probability calibration (Isotonic/Sigmoid) & threshold selection
+    Test: Final untouched evaluation once
+    """
+    total_holdout = test_size + calibration_size + validation_size
+    if total_holdout >= 1.0 or any(s <= 0 for s in (test_size, calibration_size, validation_size)):
+        raise ValueError("Tỷ lệ chia tập 4-way không hợp lệ")
+
+    cleaned = frame.copy()
+    if "domain" not in cleaned.columns:
+        cleaned = clean_dataset(cleaned)
+
+    # 1. Tách Test set
+    first_split = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
+    remain1_idx, test_idx = next(first_split.split(cleaned, groups=cleaned["domain"]))
+    remain1 = cleaned.iloc[remain1_idx].reset_index(drop=True)
+    test = cleaned.iloc[test_idx].reset_index(drop=True)
+
+    # 2. Tách Calibration set
+    rel_cal_size = calibration_size / (1.0 - test_size)
+    second_split = GroupShuffleSplit(n_splits=1, test_size=rel_cal_size, random_state=random_state)
+    remain2_idx, cal_idx = next(second_split.split(remain1, groups=remain1["domain"]))
+    remain2 = remain1.iloc[remain2_idx].reset_index(drop=True)
+    calibration = remain1.iloc[cal_idx].reset_index(drop=True)
+
+    # 3. Tách Validation set
+    rel_val_size = validation_size / (1.0 - test_size - calibration_size)
+    third_split = GroupShuffleSplit(n_splits=1, test_size=rel_val_size, random_state=random_state)
+    train_idx, val_idx = next(third_split.split(remain2, groups=remain2["domain"]))
+    train = remain2.iloc[train_idx].reset_index(drop=True)
+    validation = remain2.iloc[val_idx].reset_index(drop=True)
+
+    splits = FourWayDatasetSplits(
+        train=train,
+        validation=validation,
+        calibration=calibration,
+        test=test,
+    )
+    _assert_disjoint_splits_4way(splits)
+    return splits
+
+
 def _assert_disjoint_splits(splits: DatasetSplits) -> None:
     """Kiểm tra nghiêm ngặt không có domain hoặc URL trùng lắp giữa Train/Validation/Test."""
     train_domains = set(splits.train["domain"])
@@ -199,3 +262,59 @@ def _assert_disjoint_splits(splits: DatasetSplits) -> None:
     assert train_urls.isdisjoint(val_urls), "Leakage phát hiện: URL giao giữa Train và Validation!"
     assert train_urls.isdisjoint(test_urls), "Leakage phát hiện: URL giao giữa Train và Test!"
     assert val_urls.isdisjoint(test_urls), "Leakage phát hiện: URL giao giữa Validation và Test!"
+
+
+def _assert_disjoint_splits_4way(splits: FourWayDatasetSplits) -> None:
+    """Kiểm tra nghiêm ngặt không có domain hoặc URL trùng lắp giữa 4 tập."""
+    domain_sets = {
+        "train": set(splits.train["domain"]),
+        "validation": set(splits.validation["domain"]),
+        "calibration": set(splits.calibration["domain"]),
+        "test": set(splits.test["domain"]),
+    }
+    url_sets = {
+        "train": set(splits.train["url"]),
+        "validation": set(splits.validation["url"]),
+        "calibration": set(splits.calibration["url"]),
+        "test": set(splits.test["url"]),
+    }
+
+    names = list(domain_sets.keys())
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            n1, n2 = names[i], names[j]
+            assert domain_sets[n1].isdisjoint(domain_sets[n2]), f"Leakage: Domain giao giữa {n1} và {n2}!"
+            assert url_sets[n1].isdisjoint(url_sets[n2]), f"Leakage: URL giao giữa {n1} và {n2}!"
+
+
+@dataclass(frozen=True)
+class TemporalSplits:
+    """Tập train (quá khứ) và test (tương lai) theo thời gian ghi nhận (Protocol B)."""
+
+    train: pd.DataFrame
+    test: pd.DataFrame
+
+
+def temporal_split_protocol_b(
+    frame: pd.DataFrame,
+    *,
+    test_ratio: float = 0.20,
+    time_col: str = "submission_time",
+) -> TemporalSplits:
+    """
+    Protocol B - Đánh giá Temporal Robustness (đo concept drift):
+    Huấn luyện trên các chiến dịch cũ (quá khứ) và kiểm thử trên các chiến dịch mới hơn (tương lai).
+    """
+    if time_col not in frame.columns:
+        raise ValueError(f"Dữ liệu không chứa cột thời gian {time_col}")
+
+    # Chuyển đổi thời gian an toàn
+    frame_with_time = frame.copy()
+    frame_with_time["_parsed_time"] = pd.to_datetime(frame_with_time[time_col], errors="coerce")
+    valid_time_df = frame_with_time.dropna(subset=["_parsed_time"]).sort_values("_parsed_time").reset_index(drop=True)
+
+    split_idx = int(len(valid_time_df) * (1.0 - test_ratio))
+    train = valid_time_df.iloc[:split_idx].drop(columns=["_parsed_time"]).reset_index(drop=True)
+    test = valid_time_df.iloc[split_idx:].drop(columns=["_parsed_time"]).reset_index(drop=True)
+
+    return TemporalSplits(train=train, test=test)

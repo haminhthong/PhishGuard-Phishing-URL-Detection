@@ -1,4 +1,4 @@
-"""Dịch vụ dự đoán nhãn URL và xác định mức độ rủi ro PhishGuard ML."""
+"""Dịch vụ dự đoán nhãn URL và tách bạch chính sách rủi ro (Risk Policy) PhishGuard ML."""
 
 from __future__ import annotations
 
@@ -11,19 +11,15 @@ import pandas as pd
 from API.errors import PhishGuardAPIException
 from API.services.cache import PredictionCache
 from API.services.model_loader import LoadedModel
-from phishguard.features import FEATURE_COLUMNS, extract_features
+from phishguard.features import (
+    FEATURE_COLUMNS_V1,
+    FEATURE_COLUMNS_V2,
+    FEATURE_CONTRACT_V2,
+    extract_features,
+)
 
 LOGGER = logging.getLogger("phishguard.api.predictor")
 LABEL_NAMES = {0: "Legitimate URL", 1: "Phishing URL"}
-
-
-def calculate_risk_level(score: float) -> str:
-    """Xác định mức độ rủi ro dựa trên ngưỡng điểm mô hình."""
-    if score >= 0.80:
-        return "high"
-    if score >= 0.55:
-        return "medium"
-    return "low"
 
 
 def safe_log_host(url: str) -> str:
@@ -42,21 +38,40 @@ class PredictorService:
         self.threshold = loaded_model.threshold
         self.model_version = loaded_model.model_version
         self.feature_contract = loaded_model.feature_contract
+        self.risk_thresholds = loaded_model.risk_thresholds
+        self.feature_columns = (
+            FEATURE_COLUMNS_V2 if self.feature_contract == FEATURE_CONTRACT_V2 else FEATURE_COLUMNS_V1
+        )
+
+    def evaluate_risk_policy(self, score: float) -> tuple[str, str]:
+        """
+        Tách bạch quyết định của mô hình (probability/score) khỏi chính sách rủi ro sản phẩm:
+        - LOW: An toàn, không gián đoạn trải nghiệm người dùng
+        - MEDIUM: Nghi ngờ vừa, hiển thị badge cảnh báo mềm (soft warning)
+        - HIGH: Rủi ro cao, chặn và điều hướng sang trang cảnh báo (interstitial warning)
+        """
+        high_th = self.risk_thresholds.get("high", 0.75)
+        medium_th = self.risk_thresholds.get("medium", 0.45)
+
+        if score >= high_th:
+            return "high", "warn"
+        if score >= medium_th:
+            return "medium", "caution"
+        return "low", "allow"
 
     def predict_url(self, url: str) -> dict[str, Any]:
-        """Dự đoán cho 1 URL duy nhất, tích hợp LRU cache và risk level."""
-        # 1. Check LRU Cache
-        cached_result = self.cache.get(url)
+        """Dự đoán cho 1 URL duy nhất, tích hợp LRU cache và tách biệt model decision với risk policy."""
+        # 1. Kiểm tra LRU Cache với composite key (model_version + feature_contract + url)
+        cached_result = self.cache.get(url, self.model_version, self.feature_contract)
         if cached_result is not None:
-            # Reconstruct response with cached=True
             res = dict(cached_result)
             res["cached"] = True
             return res
 
-        # 2. Extract features
+        # 2. Trích xuất đặc trưng in-memory theo hợp đồng đang hoạt động
         try:
-            features = extract_features(url)
-            input_frame = pd.DataFrame([features], columns=FEATURE_COLUMNS)
+            features = extract_features(url, contract=self.feature_contract)
+            input_frame = pd.DataFrame([features], columns=self.feature_columns)
         except Exception as error:
             LOGGER.exception("Trích xuất đặc trưng thất bại cho hostname=%s", safe_log_host(url))
             raise PhishGuardAPIException(
@@ -69,15 +84,15 @@ class PredictorService:
         try:
             if hasattr(self.model, "predict_proba"):
                 probabilities = self.model.predict_proba(input_frame)[0]
-                # Index 1 corresponds to phishing probability
                 model_score = round(float(probabilities[1]), 4)
             else:
                 raw_label = int(self.model.predict(input_frame)[0])
                 model_score = 1.0 if raw_label == 1 else 0.0
 
+            # Phân loại nhị phân dựa trên operating threshold
             label = int(model_score >= self.threshold)
             prediction_str = LABEL_NAMES.get(label, "Unknown")
-            risk = calculate_risk_level(model_score)
+            risk_level, risk_action = self.evaluate_risk_policy(model_score)
 
         except Exception as error:
             LOGGER.exception("Dự đoán thất bại cho hostname=%s", safe_log_host(url))
@@ -89,18 +104,36 @@ class PredictorService:
 
         result = {
             "url": url,
+            "model": {
+                "score": model_score,
+                "threshold": self.threshold,
+                "label": label,
+                "version": self.model_version,
+            },
+            "risk": {
+                "level": risk_level,
+                "action": risk_action,
+            },
+            "feature_contract": self.feature_contract,
+            "cached": False,
+            # Tương thích ngược với các trường phẳng của client / test hiện có
             "label": label,
             "prediction": prediction_str,
             "model_score": model_score,
-            "risk_level": risk,
+            "risk_level": risk_level,
             "model_version": self.model_version,
-            "feature_contract": self.feature_contract,
-            "cached": False,
         }
 
-        # Save to cache
-        self.cache.put(url, result)
-        LOGGER.info("Predicted hostname=%s label=%d score=%.4f risk=%s", safe_log_host(url), label, model_score, risk)
+        # Lưu vào cache
+        self.cache.put(url, result, self.model_version, self.feature_contract)
+        LOGGER.info(
+            "Predicted hostname=%s label=%d score=%.4f risk=%s action=%s",
+            safe_log_host(url),
+            label,
+            model_score,
+            risk_level,
+            risk_action,
+        )
         return result
 
     def predict_batch(self, urls: list[str]) -> dict[str, Any]:

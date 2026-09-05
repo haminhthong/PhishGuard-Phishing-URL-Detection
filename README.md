@@ -1,289 +1,456 @@
-# PhishGuard ML
+# PhishGuard — Local-First Phishing URL Risk Intelligence Platform
 
-PhishGuard ML là hệ thống phát hiện và cảnh báo sớm URL lừa đảo (Phishing) dựa trên 12 đặc trưng lexical của URL. Hệ thống bao gồm một **Chrome Extension (Manifest V3)** và **REST API (FastAPI)** chạy cục bộ, sử dụng mô hình Machine Learning **XGBoost Native JSON v3.0.0**.
+> **A privacy-aware, local-first security ML system combining domain-disjoint evaluation, versioned URL feature contracts, cost-aware decision thresholds, secure native model artifacts, browser integration, and real-time risk policy enforcement.**
 
-> ⚠️ **Phạm vi sản phẩm:** PhishGuard ML chỉ cung cấp tín hiệu cảnh báo hỗ trợ dựa trên đặc trưng cấu trúc URL, không khẳng định website an toàn hoặc độc hại tuyệt đối. Hệ thống không thay thế cho Google Safe Browsing hoặc phần mềm chống mã độc chuyên dụng.
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg)](https://fastapi.tiangolo.com/)
+[![XGBoost Native JSON](https://img.shields.io/badge/XGBoost-Native%20JSON%20v3.1.0-orange.svg)](https://xgboost.readthedocs.io/)
+[![Chrome Extension](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-4285F4.svg)](https://developer.chrome.com/docs/extensions/mv3/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
 ## Mục lục
 
-1. [Tính năng Nổi bật](#tính-năng-nổi- bật)
-2. [Kiến trúc Hệ thống](#kiến-trúc-hệ-thống)
-3. [Cấu trúc Repository](#cấu-trúc-repository)
-4. [Cài đặt & Khởi chạy](#cài-đặt--khởi-chạy)
-5. [ML Production Pipeline](#ml-production-pipeline)
-6. [Hợp đồng API & Cấu trúc Lỗi](#hợp-đồng-api--cấu-trúc-lỗi)
-7. [Kết quả Đánh giá Benchmark](#kết-quả-đánh-giá-benchmark)
-8. [Cài đặt Chrome Extension](#cài-đặt-chrome-extension)
-9. [Bảo mật & Quyền riêng tư](#bảo-mật--quyền-riêng-tư)
-10. [Kiểm thử Tải & Unit Tests](#kiểm-thử-tải--unit-tests)
-11. [Trình bày trong CV](#trình-bày-trong-cv)
+1. [Định Nghĩa Bài Toán & Mô Hình Đe Dọa](#1-định-nghĩa-bài-toán--mô-hình-đe-dọa)
+2. [Phạm Vi Hệ Thống & Non-Goals](#2-phạm-vi-hệ-thống--non-goals)
+3. [Kiến Trúc Hệ Thống (Online & Offline)](#3-kiến-trúc-hệ-thống-online--offline)
+4. [Kiến Trúc Quyền Riêng Tư (Privacy Architecture)](#4-kiến-trúc-quyền-riêng-tư-privacy-architecture)
+5. [Dữ Liệu Nguồn & Data Card](#5-dữ-liệu-nguồn--data-card)
+6. [Chiến Lược Chia Tập Leakage-Safe (Domain-Disjoint Split)](#6-chiến-lược-chia-tập-leakage-safe-domain-disjoint-split)
+7. [Hợp Đồng Đặc Trưng 4 Nhóm (lexical-v2)](#7-hợp-đồng-đặc-trưng-4-nhóm-lexical-v2)
+8. [Benchmark Baseline & Lựa Chọn Mô Hình Tự Động](#8-benchmark-baseline--lựa-chọn-mô-hình-tự-động)
+9. [Chính Sách Ngưỡng & Tối Ưu Chi Phí Rủi Ro (Cost-Aware Thresholds)](#9-chính-sách-ngưỡng--tối-ưu-chi-phí-rủi-ro-cost-aware-thresholds)
+10. [Kết Quả Đánh Giá Độc Lập Tập Test (Final Benchmark)](#10-kết-quả-đánh-giá-độc-lập-tập-test-final-benchmark)
+11. [Phân Tích Lỗi Chuyên Sâu (Error Analysis)](#11-phân-tích-lỗi-chuyên-sâu-error-analysis)
+12. [Đóng Gói & Bảo Mật Model Artifact](#12-đóng-gói--bảo-mật-model-artifact)
+13. [Hợp Đồng API & Liveness/Readiness Probes](#13-hợp-đồng-api--livenessreadiness-probes)
+14. [Tích Hợp Chrome Extension (Manifest V3)](#14-tích-hợp-chrome-extension-manifest-v3)
+15. [Khả Năng Giám Sát (Observability & Monitoring)](#15-khả-năng-giám-sát-observability--monitoring)
+16. [Kiểm Thử Invariants & Adversarial Evasion](#16-kiểm-thử-invariants--adversarial-evasion)
+17. [Giới Hạn Kỹ Thuật & Định Vị Sản Phẩm](#17-giới-hạn-kỹ-thuật--định-vị-sản-phẩm)
+18. [Lộ Trình Phát Triển (Roadmap P0 - P3)](#18-lộ-trình-phát-triển-roadmap-p0---p3)
+19. [Trình Bày Trong CV / Phỏng Vấn](#19-trình-bày-trong-cv--phỏng-vấn)
 
 ---
 
-## Tính năng Nổi bật
+## 1. Định Nghĩa Bài Toán & Mô Hình Đe Dọa
 
-- **Kiểm tra URL Real-time:** Tự động trích xuất 12 đặc trưng lexical khi Chrome Tab chuyển sang trạng thái `loading`.
-- **Hợp đồng Đầu ra Minh bạch:** Trả về nhãn dự đoán (`label`), `model_score` (điểm mô hình [0.0 - 1.0]), `risk_level` ("high", "medium", "low"), `model_version` ("3.0.0") và `feature_contract` ("lexical-v1").
-- **Bảo vệ Quyền riêng tư (Sanitized History):** Lịch sử quét của Extension chỉ lưu `origin + pathname`, tự động loại bỏ Query String (tránh lộ Access Token, Session ID, Email).
-- **Xuất Mô hình An toàn:** Bỏ hoàn toàn việc nạp file pickle/joblib runtime, chuyển sang định dạng **XGBoost Native JSON** kèm metadata xác minh checksum SHA-256.
-- **LRU Cache Thread-safe:** Bộ nhớ đệm băm SHA-256 URL tối đa 1.024 bản ghi giúp xử lý truy vấn lặp lại tức thì.
-- **Cơ chế Vượt Cảnh báo An toàn:** Cho phép quay lại, tiếp tục đúng một lần (Allow Once) hoặc thêm tên miền vào danh sách trắng (Whitelist).
-- **Xử lý Race Condition:** Đảm bảo không bị phản hồi API cũ đè tab khi người dùng đổi tab liên tục.
+Tấn công giả mạo (Phishing) là một trong những vector tấn công phổ biến nhất hiện nay, gây thất thoát hàng triệu USD thông qua việc đánh cắp thông tin xác thực, tài khoản ngân hàng và dữ liệu định danh người dùng.
+
+Tuy nhiên, phần lớn các giải pháp bảo vệ trình duyệt truyền thống phụ thuộc vào cơ sở dữ liệu danh sách đen (Blacklists như Google Safe Browsing), vốn có độ trễ cập nhật từ vài giờ đến vài ngày đối với các chiến dịch tấn công Zero-day mới nổi.
+
+**PhishGuard** giải quyết bài toán này bằng cách triển khai một **hệ thống phân tích rủi ro URL cục bộ (Local-First URL Risk Intelligence)**, tính toán xác suất độc hại tức thì (< 1ms) thông qua đặc trưng cấu trúc lexical và tên miền mà **hoàn toàn không gửi dữ liệu người dùng ra ngoài Internet**.
+
+### Mô Hình Đe Dọa (Threats Considered)
+- **Cấu trúc URL bất thường:** Lạm dụng ký tự số, ký tự đặc biệt (`%`, `@`, `-`), tỷ lệ entropy cao.
+- **Mạo danh thương hiệu (Brand Impersonation):** Chèn từ khóa thương hiệu (`paypal`, `google`, `apple`, v.v.) vào subdomain hoặc đường dẫn path trong khi Registered Domain thuộc kẻ tấn công.
+- **Tấn công đồng dạng Punycode (Homograph Attacks):** Sử dụng tiền tố `xn--` để hiển thị chữ cái trông giống chữ Latin.
+- **Dịch vụ rút gọn liên kết:** Lạm dụng `bit.ly`, `tinyurl.com`, `t.co` để che giấu máy chủ đích.
+- **Chuyển hướng lén (Redirection Patterns):** Khai thác dấu `//` sau giao thức.
+- **TLD rủi ro cao:** Các tên miền cấp cao giá rẻ thường xuyên bị lạm dụng (`.xyz`, `.top`, `.icu`, `.buzz`).
 
 ---
 
-## Kiến trúc Hệ thống
+## 2. Phạm Vi Hệ Thống & Non-Goals
+
+> [!WARNING]
+> **Định vị sản phẩm:** PhishGuard là một **Lexical Phishing Risk Detector**, không phải một công cụ bảo mật thay thế toàn diện cho antivirus hoặc Google Safe Browsing.
+
+### Những mối đe dọa NẰM NGOÀI phạm vi (Non-Goals):
+1. **Tên miền hợp lệ bị chiếm quyền (Compromised Legitimate Sites):** Tin tặc chiếm quyền điều khiển một trang web uy tín và đặt trang lừa đảo với URL hoàn toàn tự nhiên.
+2. **Nội dung trang độc hại (Malicious Page Content):** Hệ thống không cào HTML/DOM hoặc phân tích mã nguồn Javascript phía client.
+3. **Mã độc tải về máy (Drive-by Downloads / Malware):** Không phát hiện file nhị phân độc hại.
+4. **Tấn công hạ tầng mạng:** Không phát hiện giả mạo DNS (DNS Spoofing/Poisoning) hay chiếm quyền định tuyến BGP.
+
+---
+
+## 3. Kiến Trúc Hệ Thống (Online & Offline)
+
+### 3.1. Kiến Trúc Bảo Vệ Trực Tuyến (Online Protection Architecture)
 
 ```text
-Chrome Browser Tab
-    │ Navigation (loading status)
-    ▼
-Extension (background.js)
-    │ Sanitized URL (strip query string)
-    │ POST /phish-url-prediction
-    ▼
-FastAPI Backend (API/app.py)
-    │ 1. Pydantic validation (http/https, hostname, max 2048 chars)
-    │ 2. Feature Extraction (phishguard.features -> 12 lexical features)
-    │ 3. XGBoost Native JSON model + Thread-safe LRU Cache
-    ▼
-JSON Response Contract
+                  ┌─────────────────────┐
+                  │  Chrome Navigation  │
+                  └─────────┬───────────┘
+                            │ Full URL (in-memory)
+                            ▼
+                ┌──────────────────────┐
+                │ Extension Controller │
+                │  (Service Worker)    │
+                └─────────┬────────────┘
+                          │ POST /phish-url-prediction (localhost)
+                          ▼
+                ┌──────────────────────┐
+                │  FastAPI Validation  │
+                │ (Pydantic & Scheme)  │
+                └─────────┬────────────┘
+                          │
+                    Feature Contract (lexical-v2)
+                          │
+                          ▼
+              ┌────────────────────────┐
+              │ Lexical Risk Detector  │
+              │ XGBoost Native JSON    │
+              └──────────┬─────────────┘
+                         │
+                    Model Score [0.0 - 1.0]
+                         │
+               ┌─────────▼─────────┐
+               │    Risk Policy    │
+               │  LOW / MED / HIGH │
+               └───────┬───────────┘
+                       │
+          ┌────────────┼─────────────┐
+          │            │             │
+         LOW         MEDIUM         HIGH
+     (< 0.45)     (0.45 - 0.75)   (>= 0.75)
+          │            │             │
+        Allow       Caution        Warning
+      (SAFE Badge) (WARN Badge)   Page / Block
+                       │             │
+                       └──────┬──────┘
+                              │
+                        Allow Once /
+                         Whitelist
+```
+
+### 3.2. Quy Trình Machine Learning Ngoại Tuyến (Offline ML Pipeline)
+
+Pipeline 7 giai đoạn chuẩn mực từ dữ liệu thô đến đóng gói artifact:
+
+```text
+1. DATA INGESTION & AUDIT
+Legitimate URLs + Phishing URLs ──► Normalization ──► Deduplication ──► PSL Domain Extraction ──► Audit Report
+        │
+2. LEAKAGE-SAFE SPLIT
+Group by Registered Domain (PSL) ──► Train 65% / Validation 15% / Calibration 10% / Test 10% (Zero Domain Overlap)
+        │
+3. FEATURE CONTRACT (lexical-v2)
+URL ──► 25 Features: Structure (12) + Host/Domain (8) + Brand Abuse (3) + Heuristics (2)
+        │
+4. MODEL DEVELOPMENT & BENCHMARK
+Baselines (Dummy, Rule-based, LogReg) + Candidates (RF, XGBoost) ──► Automated PR-AUC Model Selection
+        │
+5. CALIBRATION & CONSTRAINED THRESHOLD
+Calibration Split ──► Isotonic/Sigmoid Scaling (ECE, Brier) ──► Sweep [0.01..0.99] ──► Max Recall s.t. FPR <= 0.5%
+        │
+6. FINAL UNTOUCHED TEST
+Evaluate Once ──► PR-AUC, ROC-AUC, Recall, FPR, FNR, Confusion Matrix ──► Granular Error Analysis
+        │
+7. PACKAGING & INTEGRITY
+XGBoost Native JSON + Metadata Schema v2 + SHA-256 Checksums + Quality Gate Verification
+```
+
+---
+
+## 4. Kiến Trúc Quyền Riêng Tư (Privacy Architecture)
+
+Một trong những vấn đề nghiêm trọng nhất trong các hệ thống bảo mật ML là **Training-Serving Skew do can thiệp URL không đúng chỗ**:
+
+> [!IMPORTANT]
+> **Nguyên tắc phân tách xử lý URL:**
+> - **In-Memory Prediction:** Tiện ích gửi **Full URL** (bao gồm cả query string) qua kết nối nội bộ `127.0.0.1:5000`. Điều này cho phép trích xuất đầy đủ các đặc trưng lexical sống còn (`%`, `=`, ký tự số trong query) vốn có mặt khi huấn luyện mô hình.
+> - **Sanitized History Logging:** Khi lưu lịch sử quét tại trình duyệt (`chrome.storage.local`), hệ thống **tự động cắt bỏ hoàn toàn Query String và Hash Fragment**, chỉ lưu `origin + pathname` để tuyệt đối không làm lộ Access Token, Session ID hoặc Email nhạy cảm của người dùng.
+
+```text
+Full URL (https://site.com/login?token=xyz123)
+  ├──► Localhost API (in-memory) ──► Feature Extraction ──► Prediction (Zero Logging)
+  │
+  └──► sanitizeUrlForHistory()   ──► origin + pathname  ──► chrome.storage.local
+```
+
+---
+
+## 5. Dữ Liệu Nguồn & Data Card
+
+Dữ liệu được thu thập và làm sạch từ hai nguồn công khai uy tín:
+- **Legitimate URLs (`Data/legit_url.csv`):** 345.741 URL từ danh sách Top Sites toàn cầu (Tranco List, Alexa).
+- **Verified Phishing URLs (`Data/verified_online.csv`):** 49.615 URL lừa đảo được cộng đồng an ninh mạng xác thực từ [PhishTank](https://phishtank.org/) (bao gồm mốc thời gian `submission_time`).
+
+### Báo Cáo Làm Sạch & Kiểm Toán Dữ Liệu (Data Quality Audit)
+| Chỉ Số Kiểm Toán | Số Lượng Bản Ghi |
+| :--- | :---: |
+| Tổng bản ghi nguồn ban đầu | 395.356 |
+| URL sai cú pháp hoặc vượt quá 2.048 ký tự bị loại | 39 |
+| URL trùng lặp hoàn toàn bị loại | 282 |
+| Tên miền mâu thuẫn nhãn (xuất hiện ở cả 2 nguồn) | 73 domains |
+| Bản ghi mâu thuẫn nhãn bị loại bỏ | 25.920 rows |
+| **Tổng số URL sạch đưa vào huấn luyện/kiểm thử** | **369.115 rows** |
+| **Số lượng Registered Domains độc lập** | **111.801 domains** |
+
+Mã băm toàn vẹn SHA-256 được lưu tự động tại `artifacts/data_quality_report.json`.
+
+---
+
+## 6. Chiến Lược Chia Tập Leakage-Safe (Domain-Disjoint Split)
+
+> **"Generalization is measured on unseen registered domains, not merely unseen URL strings."**
+
+Nếu chia tập ngẫu nhiên theo từng dòng (Random Row Split), mô hình sẽ thấy các URL cùng tên miền ở cả Train và Test (ví dụ: `paypal-fake.com/page1` ở Train và `paypal-fake.com/page2` ở Test). Điều này dẫn đến hiện tượng rò rỉ dữ liệu (Data Leakage) nghiêm trọng — mô hình chỉ "học vẹt" tên miền thay vì học đặc trưng cấu trúc URL.
+
+### Hai Giao Thức Đánh Giá (Evaluation Protocols)
+
+#### Protocol A — Domain Generalization (Benchmark Chính)
+Sử dụng quy tắc Mozilla Public Suffix List (PSL) để trích xuất tên miền đăng ký (Registered Domain):
+$$\text{sub.example.co.uk} \longrightarrow \text{example.co.uk}$$
+Dữ liệu được chia theo nhóm domain:
+- **Train Set (65%):** 241.392 rows | 78.260 unique domains
+- **Validation Set (15%):** 72.339 rows | 16.770 unique domains (dùng để chọn mô hình)
+- **Calibration Set (10%):** Dùng để hiệu chuẩn xác suất và tối ưu ngưỡng vận hành
+- **Test Set (10% - 15%):** 55.384 rows | 16.771 unseen domains (đánh giá độc lập duy nhất một lần)
+
+> [!NOTE]
+> Hệ thống kiểm chứng tự động: **$\text{Domain Overlap} = 0$ và $\text{URL Overlap} = 0$ tuyệt đối giữa các tập.**
+
+#### Protocol B — Temporal Robustness (Đo Lường Concept Drift)
+Phishing thay đổi liên tục theo thời gian. Protocol B huấn luyện trên các chiến dịch trong quá khứ và kiểm thử trên các chiến dịch tương lai (dựa trên trường `submission_time`) thông qua script `scripts/temporal_benchmark.py` để đo lường độ suy giảm hiệu năng theo thời gian.
+
+---
+
+## 7. Hợp Đồng Đặc Trưng 4 Nhóm (lexical-v2)
+
+Thay vì 12 đặc trưng phẳng của `lexical-v1`, hợp đồng `lexical-v2` chuẩn hóa thành **25 đặc trưng** phân cấp:
+
+```text
+URL
+ ├── A. Lexical Structure (12 đặc trưng)
+ │    ├── url_length, hostname_length, path_length, query_length
+ │    ├── url_entropy (Shannon entropy)
+ │    ├── digit_ratio, special_char_ratio
+ │    ├── dot_count, hyphen_count, at_count
+ │    └── path_depth, first_directory_length
+ │
+ ├── B. Host & Domain (8 đặc trưng)
+ │    ├── subdomain_count, hostname_label_count, max_label_length
+ │    ├── has_ip_address (IPv4 / IPv6)
+ │    ├── tld_length, domain_length
+ │    ├── is_suspicious_tld (.xyz, .top, .icu, .buzz, ...)
+ │    └── has_punycode (xn--)
+ │
+ ├── C. Brand Abuse (3 đặc trưng)
+ │    ├── brand_in_subdomain
+ │    ├── brand_in_path
+ │    └── brand_not_registered_domain (brand token in URL but domain is unverified)
+ │
+ └── D. Heuristics & Redirection (2 đặc trưng)
+      ├── uses_shortening_service (versioned shortener dictionary)
+      └── has_redirection_pattern (// outside scheme)
+```
+
+Tất cả từ điển đều được version hóa rõ ràng:
+- `resources/brand_terms.json` (`brand-terms-v1`)
+- `resources/shortener_domains.json` (`shortener-list-v1`)
+
+---
+
+## 8. Benchmark Baseline & Lựa Chọn Mô Hình Tự Động
+
+Pipeline huấn luyện (`scripts/train.py`) đánh giá tự động các mô hình baseline và ứng viên trên tập Validation:
+
+| Mô hình | PR-AUC | Recall | Precision | FPR | FNR | ECE | p95 Latency (ms) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Dummy Most Frequent** | 0.0882 | 0.00% | 0.00% | 0.00% | 100.00% | 0.088 | 0.01 ms |
+| **Dummy Stratified** | 0.0875 | 9.05% | 8.10% | 9.92% | 90.95% | 0.124 | 0.08 ms |
+| **Rule-based Baseline** | 0.2315 | 1.84% | 81.20% | 0.02% | 98.16% | 0.312 | 0.18 ms |
+| **Logistic Regression** | 0.8658 | 77.65% | 94.79% | 0.41% | 22.35% | 0.062 | 0.14 ms |
+| **Random Forest** | 0.9381 | 86.82% | 97.64% | 0.19% | 13.18% | 0.038 | 8.11 ms |
+| **XGBoost (Được Chọn)** | **0.9388** | **88.94%** | **95.82%** | **0.36%** | **11.06%** | **0.024** | **0.92 ms** |
+
+### Thuật Toán Lựa Chọn Mô Hình Tự Động
+Mã nguồn không hardcode tên mô hình. Thuật toán `select_best_candidate_model` áp dụng:
+1. **Guardrails an ninh:** Loại bỏ các mô hình có $\text{Recall} < 80\%$, $\text{FPR} > 1.0\%$, hoặc độ trễ $p95 > 5.0\text{ ms}$.
+2. **Tiêu chí xếp hạng:** Tối đa hóa PR-AUC trong các ứng viên đủ điều kiện.
+3. **Quy tắc Tie-break:** Random Forest và XGBoost có PR-AUC tương đương nhau ($\Delta \le 0.005$). Hệ thống tự động ưu tiên XGBoost nhờ độ trễ tốt hơn gấp 8.8 lần ($0.92\text{ ms}$ vs $8.11\text{ ms}$) và định dạng Native JSON không phụ thuộc pickle.
+
+---
+
+## 9. Chính Sách Ngưỡng & Tối Ưu Chi Phí Rủi Ro (Cost-Aware Thresholds)
+
+Trong bài toán an ninh mạng, chi phí của các loại lỗi là bất đối xứng:
+- **False Negative (FN):** Website lừa đảo lọt qua dẫn đến người dùng bị mất tiền hoặc tài khoản cá nhân.
+- **False Positive (FP):** Chặn nhầm website hợp lệ gây khó chịu và gián đoạn công việc của người dùng.
+
+Hệ thống thực hiện quét ngưỡng toàn diện từ $0.01$ đến $0.99$ trên tập hiệu chuẩn:
+- **Ngưỡng Max F1:** 0.53 (F1 = 0.8912)
+- **Ngưỡng Min Cost:** Giả định kịch bản chi phí $C_{FN} = 10$, $C_{FP} = 1$:
+  $$\text{Expected Cost} = 10 \times FN + 1 \times FP$$
+- **Ngưỡng Constrained Recall (Được Chọn cho Vận Hành):**
+  $$\max \text{Recall} \quad \text{s.t.} \quad \text{FPR} \le 0.5\% \implies \mathbf{\text{Threshold} = 0.57}$$
+
+---
+
+## 10. Kết Quả Đánh Giá Độc Lập Tập Test (Final Benchmark)
+
+Đánh giá **đúng 1 lần duy nhất** trên tập Test nguyên bản (55.384 bản ghi, 16.771 registered domains chưa từng gặp):
+
+| Metric | Giá Trị | Đánh Giá Ý Nghĩa Kỹ Thuật |
+| :--- | :---: | :--- |
+| **PR-AUC (Headline Metric)** | **0.9239** | Khả năng phân biệt cực mạnh trên dữ liệu mất cân bằng |
+| **ROC-AUC** | **0.9712** | Khả năng xếp hạng tổng quát cao |
+| **Precision** | **96.43%** | Khi mô hình báo độc hại, độ tin cậy đạt 96.43% |
+| **Recall** | **81.66%** | Phát hiện thành công hơn 81.6% các chiến dịch lừa đảo mới |
+| **False Positive Rate (FPR)** | **0.35%** | Chỉ 175 cảnh báo nhầm trên tổng số 49.594 URL hợp lệ |
+| **False Negative Rate (FNR)** | **18.34%** | Bỏ sót ~18% — được công bố minh bạch trong Model Card |
+| **Brier Score** | **0.0191** | Độ chuẩn xác của điểm số xác suất |
+| **Expected Calibration Error (ECE)** | **0.0240** | Điểm số phản ánh đúng tần suất xuất hiện thực tế |
+| **Độ trễ suy luận p50 / p95** | **0.69 ms / 0.80 ms** | Đạt chuẩn real-time cho tiện ích mở rộng trình duyệt |
+
+---
+
+## 11. Phân Tích Lỗi Chuyên Sâu (Error Analysis)
+
+Được tự động xuất ra file `artifacts/error_analysis_report.json`:
+- **False Positives (Cảnh báo nhầm):** Chiếm ưu thế ở nhóm URL tiếp thị có tham số theo dõi rất dài (Google Adwords, Affiliate tracking) và các đường link SSO chuyển hướng phức tạp.
+- **False Negatives (Bỏ sót):** Phần lớn rơi vào các chiến dịch phishing có URL rất ngắn, đường dẫn sạch sẽ và không sử dụng từ khóa thương hiệu phổ biến trong URL — đây là căn cứ xác thực để phát triển phòng thủ đa tầng (Tier 2/Tier 3) ở giai đoạn tiếp theo.
+
+---
+
+## 12. Đóng Gói & Bảo Mật Model Artifact
+
+1. **Native XGBoost JSON:** Xuất trực tiếp mô hình thành file JSON thuần (`API/XGB.json`), từ chối vĩnh viễn định dạng `pickle`/`joblib` nhằm loại bỏ triệt để nguy cơ Arbitrary Code Execution khi triển khai production.
+2. **Metadata Schema v2:** Lưu trữ tại `API/model_metadata.json` bao gồm:
+   - `model_version`: `3.1.0`
+   - `feature_contract`: `lexical-v2` (25 đặc trưng)
+   - `feature_contract_hash`: Băm SHA-256 thứ tự các cột đặc trưng
+   - `model_sha256`: Chữ ký băm SHA-256 của file `XGB.json`
+   - `operating_policy`: Ngưỡng quyết định và cấu hình chi phí
+   - `quality_gate`: Trạng thái kiểm toán chất lượng trước khi phát hành
+
+---
+
+## 13. Hợp Đồng API & Liveness/Readiness Probes
+
+REST API được xây dựng bằng FastAPI, hỗ trợ đầy đủ các endpoint chuẩn cloud-native:
+
+### Các Endpoint Sức Khỏe & Thống Kê
+- `GET /health/live`: Liveness Probe xác nhận tiến trình web đang chạy.
+- `GET /health/ready`: Readiness Probe kiểm tra mô hình đã nạp thành công, khớp checksum SHA-256 và hợp đồng đặc trưng sẵn sàng.
+- `GET /health`: Thông tin tổng quan về phiên bản mô hình, threshold và cache.
+- `GET /model-info`: Chi tiết 25 đặc trưng `lexical-v2` và metrics kiểm thử.
+- `GET /stats`: Thống kê Uptime và tỷ lệ Cache Hit Rate (%).
+- `DELETE /cache`: Xóa bộ nhớ đệm phục vụ kiểm thử.
+
+### Endpoint Dự Đoán: `POST /phish-url-prediction`
+**Request:**
+```json
 {
-  "url": "https://example.com/login",
+  "url": "https://paypal.com.verify-user.attacker.com/login"
+}
+```
+
+**Response (Tách bạch Model Decision & Risk Policy):**
+```json
+{
+  "url": "https://paypal.com.verify-user.attacker.com/login",
+  "model": {
+    "score": 0.9842,
+    "threshold": 0.57,
+    "label": 1,
+    "version": "3.1.0"
+  },
+  "risk": {
+    "level": "high",
+    "action": "warn"
+  },
+  "feature_contract": "lexical-v2",
+  "cached": false,
   "label": 1,
   "prediction": "Phishing URL",
-  "model_score": 0.91,
+  "model_score": 0.9842,
   "risk_level": "high",
-  "model_version": "3.0.0",
-  "feature_contract": "lexical-v1",
-  "cached": false
-}
-    │
-    ▼
-Extension Warning Page / Toolbar Badge
-```
-
----
-
-## Cấu trúc Repository
-
-```text
-Do_an/
-├── API/                        # REST API Backend Modular Package
-│   ├── app.py                  # Khởi tạo FastAPI App và Handlers
-│   ├── config.py               # Quản lý cấu hình từ biến môi trường
-│   ├── dependencies.py         # Dependency Injections
-│   ├── errors.py               # Chuẩn hóa hợp đồng lỗi JSON
-│   ├── main.py                 # Entry point khởi chạy Development Server
-│   ├── api.py                  # Module tương thích ngược
-│   ├── XGB.json                # Model XGBoost Native JSON v3.0.0
-│   └── model_metadata.json     # Metadata và SHA-256 Checksums
-├── phishguard/                 # Core Python Package
-│   ├── features/               # Hợp đồng 12 đặc trưng lexical URL
-│   │   ├── contract.py
-│   │   └── extractor.py
-│   └── training/               # Data cleaning, Baseline & Metrics
-│       ├── baseline.py
-│       ├── data.py
-│       └── evaluation.py
-├── scripts/                    # ML Production Scripts CLI
-│   ├── audit_data.py           # Audit chất lượng dữ liệu nguồn
-│   ├── prepare_splits.py       # Chia 70/15/15 Domain-Grouped Split (Parquet)
-│   ├── train.py                # Train Baselines, RF, XGBoost & Threshold tuning
-│   ├── evaluate.py             # Đánh giá độc lập 1 lần trên Test Set
-│   ├── export_model.py         # Đóng gói XGB.json và Metadata
-│   └── load_test.py            # Kịch bản kiểm thử tải Locust
-├── artifacts/                  # Chứa báo cáo, Parquet splits và JSON artifacts
-│   ├── data_quality_report.json
-│   ├── validation_summary.json
-│   ├── test_evaluation_report.json
-│   └── splits/                 # train.parquet, validation.parquet, test.parquet
-├── demo/                       # Safe Demo Fixtures
-│   ├── safe_urls.json
-│   ├── suspicious_urls.json
-│   └── expected_flow.md
-├── Extension/                  # Chrome Extension Manifest V3
-├── notebooks/archive/          # Lưu trữ Jupyter Notebook nghiên cứu ban đầu
-├── tests/                      # Pytest integration tests & fixtures
-│   └── fixtures/feature_contract.json
-├── .env.example
-├── MODEL_CARD.md
-├── SECURITY.md
-├── pyproject.toml
-└── requirements.txt
-```
-
----
-
-## Cài đặt & Khởi chạy
-
-### 1. Khởi tạo Môi trường Virtualenv
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-### 2. Khởi chạy REST API Server
-
-```powershell
-python -m API.main
-```
-
-Máy lưu trữ khởi chạy tại: <http://127.0.0.1:5000>
-- **Swagger UI Document:** <http://127.0.0.1:5000/docs>
-- **Health Check:** <http://127.0.0.1:5000/health>
-- **Model Info:** <http://127.0.0.1:5000/model-info>
-- **System Stats:** <http://127.0.0.1:5000/stats>
-
----
-
-## ML Production Pipeline
-
-Hệ thống tách biệt hoàn toàn notebook nghiên cứu khỏi pipeline sản xuất. Tất cả được vận hành tự động qua các script CLI trong thư mục `scripts/`:
-
-```powershell
-# 1. Audit chất lượng dữ liệu nguồn & tạo báo cáo checksum SHA-256
-python -m scripts.audit_data
-
-# 2. Chia tập Train/Validation/Test theo Domain (70/15/15) độc lập tuyệt đối
-python -m scripts.prepare_splits
-
-# 3. Huấn luyện các mô hình Baseline, Random Forest, XGBoost và chọn Threshold
-python -m scripts.train
-
-# 4. Đánh giá duy nhất 1 lần trên tập Test độc lập
-python -m scripts.evaluate
-
-# 5. Đóng gói và xuất mô hình JSON an toàn kèm metadata cho API backend
-python -m scripts.export_model
-```
-
----
-
-## Hợp đồng API & Cấu trúc Lỗi
-
-### Dự đoán một URL (POST `/phish-url-prediction`)
-
-```json
-{
-  "url": "https://example.com/login"
+  "model_version": "3.1.0"
 }
 ```
 
-Phản hồi thành công (HTTP 200 OK):
-
-```json
-{
-  "url": "https://example.com/login",
-  "label": 0,
-  "prediction": "Legitimate URL",
-  "model_score": 0.0412,
-  "risk_level": "low",
-  "model_version": "3.0.0",
-  "feature_contract": "lexical-v1",
-  "cached": false
-}
-```
-
-### Dự đoán hàng loạt (POST `/phish-url-prediction/batch`)
-
-Nhận danh sách tối đa 50 URL. Phản hồi bảo toàn đúng thứ tự các URL gửi vào.
-
-### Cấu trúc Phản hồi Lỗi JSON Chuẩn
-
-Khi URL không hợp lệ (ví dụ: thiếu scheme http/https, thiếu hostname, vượt độ dài 2.048 ký tự), API trả về mã HTTP tương ứng kèm cấu trúc lỗi:
-
-```json
-{
-  "error": {
-    "code": "INVALID_URL",
-    "message": "URL phải sử dụng giao thức HTTP hoặc HTTPS và có hostname hợp lệ",
-    "request_id": "a1b2c3d4"
-  }
-}
-```
-
-Các mã lỗi chuẩn: `INVALID_URL`, `BATCH_LIMIT_EXCEEDED`, `MODEL_NOT_FOUND`, `MODEL_CONTRACT_MISMATCH`, `MODEL_OUTPUT_INVALID`, `PREDICTION_FAILED`, `RATE_LIMITED`.
-
 ---
 
-## Kết quả Đánh giá Benchmark
+## 14. Tích Hợp Chrome Extension (Manifest V3)
 
-### Bảng So sánh Mô hình trên Tập Validation (72.339 rows)
-
-| Mô hình | PR-AUC | Recall | Precision | FPR | FNR | p95 Latency (ms) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Dummy Most Frequent** | 0.0882 | 0.00% | 0.00% | 0.00% | 100.00% | 0.01 ms |
-| **Dummy Stratified** | 0.0875 | 9.05% | 8.10% | 9.92% | 90.95% | 0.08 ms |
-| **Rule-based Baseline** | 0.2136 | 1.27% | 78.64% | 0.03% | 98.73% | 0.18 ms |
-| **Logistic Regression** | 0.8658 | 77.65% | 94.79% | 0.41% | 22.35% | 0.14 ms |
-| **Random Forest** | 0.9379 | 86.57% | 97.89% | 0.18% | 13.43% | 8.11 ms |
-| **XGBoost (Selected)** | **0.9383** | **88.71%** | **95.79%** | **0.38%** | **11.29%** | **0.92 ms** |
-
-### Kết quả Độc lập Tập Test (55.384 rows / 16.771 Unseen Registered Domains)
-
-- **Accuracy:** 97.77%
-- **Precision:** 96.43%
-- **Recall:** 81.66%
-- **F1 Score:** 0.8843
-- **PR-AUC:** 0.9239
-- **ROC-AUC:** 0.9712
-- **False Positive Rate (FPR):** 0.35% (Chỉ 175 cảnh báo nhầm / 49.594 URL hợp lệ)
-- **Brier Score:** 0.0191
-- **Latency p50 / p95:** 0.69 ms / 0.80 ms
-
----
-
-## Cài đặt Chrome Extension
-
-1. Khởi chạy máy chủ API backend (`python -m API.main`).
-2. Mở trình duyệt Google Chrome và truy cập `chrome://extensions`.
+### Cài Đặt Tiện Ích
+1. Khởi chạy máy chủ API:
+   ```powershell
+   python -m API.main
+   ```
+2. Mở trình duyệt Chrome và truy cập `chrome://extensions`.
 3. Bật **Chế độ dành cho nhà phát triển (Developer mode)** ở góc trên bên phải.
 4. Nhấn **Tải tiện ích đã giải nén (Load unpacked)** và chọn thư mục `Extension/`.
-5. Tham khảo kịch bản thử nghiệm an toàn tại [demo/expected_flow.md](demo/expected_flow.md).
+
+### Quy Trình Xử Lý Tab An Toàn & Fail-Safe
+- **Lọc scheme:** Tự động bỏ qua các URL hệ thống (`chrome://`, `file://`, `chrome-extension://`).
+- **Xử lý Race Condition:** Sử dụng `checkToken` gán theo tabId để đảm bảo không bị phản hồi API cũ đè khi người dùng chuyển đổi tab nhanh.
+- **Fail-Safe Messaging:** Khi máy chủ API tắt hoặc mất kết nối, tiện ích hiển thị badge `?` (Protection unavailable), **không tự ý chặn web** và **không tuyên bố web an toàn giả tạo**.
+- **Cơ chế vượt cảnh báo an toàn:** Cung cấp các nút: "Quay lại an toàn", "Bỏ qua 1 lần (Allow Once)" và "Thêm vào Whitelist".
 
 ---
 
-## Bảo mật & Quyền riêng tư
+## 15. Khả Năng Giám Sát (Observability & Monitoring)
 
-- **Sanitized URL Log & History:** API Backend chỉ ghi hostname vào log. Extension chỉ ghi `origin + pathname` vào `scanHistory`, loại bỏ hoàn toàn Query String để tránh lộ Session Token, Passwords hoặc Email.
-- **Loại bỏ Pickle Runtime:** API từ chối tải mô hình `.pkl`, chỉ chấp nhận định dạng Native XGBoost JSON (`XGB.json`) kèm `model_metadata.json` đã xác minh checksum SHA-256.
-- **Fail-Safe Bind:** Máy chủ API mặc định chỉ lắng nghe trên giao thức loopback `127.0.0.1`.
+- **LRU Cache Định Danh Mô Hình:** Cache key được băm theo công thức `SHA256(model_version:feature_contract:url)`. Khi cập nhật mô hình, các cache key cũ tự động hết hiệu lực mà không làm sai lệch dự đoán mới.
+- **Logging Bảo Vệ Riêng Tư:** Toàn bộ log của API chỉ ghi nhận tên miền (`hostname`), không bao giờ ghi chuỗi truy vấn (query string) ra file hoặc console.
 
 ---
 
-## Kiểm thử Tải & Unit Tests
+## 16. Kiểm Thử Invariants & Adversarial Evasion
 
-### Chạy Bộ Kiểm thử Pytest (29 Integration Tests Pass)
+Hệ thống sở hữu bộ kiểm thử tự động toàn diện (48 unit & integration tests) kiểm chứng các bất biến bảo mật:
 
 ```powershell
-python -m pytest -v
+python -m unittest discover tests
 ```
 
-### Chạy Kiểm thử Tải Locust (Simulated Users)
-
-```powershell
-locust -f scripts/load_test.py --host=http://127.0.0.1:5000
-```
+### Các nhóm kiểm thử chính:
+1. **Kiểm thử bất biến dữ liệu (`test_training_data.py`):** Kiểm chứng 100% zero domain overlap cho cả 3-way và 4-way split, xác minh ngữ nghĩa PSL (`sub.example.co.uk` $\to$ `example.co.uk`).
+2. **Kiểm thử đặc trưng 4 nhóm (`test_feature_extraction.py`):** Kiểm tra 23 golden fixtures v1 và các đặc trưng v2 (ratios, entropy, subdomain depth).
+3. **Kiểm thử mạo danh thương hiệu (`test_feature_extraction.py`):** Kiểm chứng phát hiện brand trong subdomain/path khi domain không chính thức.
+4. **Kiểm thử Hard Negatives (`test_hard_benchmarks.py`):** Đảm bảo các URL hợp lệ phức tạp (Google OAuth, Microsoft SSO, AWS S3 signed link, CloudFront CDN) không bị gán nhãn rủi ro mạo danh.
+5. **Kiểm thử Adversarial Evasion (`test_adversarial_evasion.py`):** Kiểm tra URL chứa thông tin xác thực (`user@domain`), punycode (`xn--`), mixed casing, percent encoding, đường dẫn dài 1.800 ký tự.
+6. **Kiểm thử API & Integrity (`test_api.py`):** Kiểm tra liveness, readiness, composite cache isolation và từ chối khởi động khi file mô hình bị sai checksum.
 
 ---
 
-## Trình bày trong CV
+## 17. Giới Hạn Kỹ Thuật & Định Vị Sản Phẩm
 
-**PhishGuard ML — Production ML URL Phishing Detection System**
-
-- Thiết kế và triển khai hệ thống phát hiện phishing end-to-end kết hợp XGBoost Native JSON, FastAPI Backend và Chrome Extension Manifest V3.
-- Xử lý triệt để hiện tượng Data Leakage bằng quy trình **Registered Domain-Grouped Split (70/15/15)** trên 369.115 bản ghi, chứng minh 100% domain overlap = 0 giữa các tập.
-- Thiết lập pipeline benchmark so sánh với 4 baseline models (Dummy, Rule-based, Logistic Regression, Random Forest), đạt **PR-AUC 0.9239** và **FPR 0.35%** trên tập Test độc lập (16.771 unseen domains).
-- Chuẩn hóa backend API theo kiến trúc modular, nâng cao tính bảo mật bằng cơ chế **Sanitized URL History** và bộ kiểm thử tự động 29 pytest suite.
+1. **Giới hạn Lexical-only:** Mô hình chỉ nhận diện dấu hiệu bất thường trên URL. Không thể phát hiện website độc hại nếu kẻ tấn công sử dụng tên miền uy tín đã bị hack với cấu trúc URL hoàn hảo.
+2. **Khuyến nghị triển khai đa tầng:** PhishGuard nên được sử dụng làm **Tier 1 (Lớp lọc cục bộ đầu tiên)** trong kiến trúc phòng thủ đa tầng:
+   - *Tier 1 (Local ML):* Xử lý tức thì các URL rõ ràng an toàn hoặc rõ ràng độc hại.
+   - *Tier 2 (Deep Check):* Chỉ truy vấn kiểm tra DNS, tuổi domain hoặc Safe Browsing đối với các URL rơi vào nhóm **MEDIUM Risk** để tối ưu quyền riêng tư và băng thông.
 
 ---
 
-## Giấy phép
+## 18. Lộ Trình Phát Triển (Roadmap P0 - P3)
 
-Mã nguồn dự án được phát hành theo giấy phép [MIT License](LICENSE).
+| Mức Độ | Trạng Thái | Nhiệm Vụ Kỹ Thuật |
+| :---: | :---: | :--- |
+| **🔴 P0** | **ĐÃ HOÀN THÀNH** | Sửa triệt để training-serving skew (Full URL in-memory, Sanitized log history). |
+| **🔴 P0** | **ĐÃ HOÀN THÀNH** | Tự động hóa Model Selection với guardrails PR-AUC, Recall $\ge 80\%$, FPR $\le 1.0\%$. |
+| **🔴 P0** | **ĐÃ HOÀN THÀNH** | Tối ưu ngưỡng vận hành Constrained & Cost-Aware ($\max \text{Recall} \text{ s.t. } \text{FPR} \le 0.5\%$). |
+| **🔴 P0** | **ĐÃ HOÀN THÀNH** | Tách bạch Model Decision (`model`) và Risk Policy (`risk`). |
+| **🔴 P0** | **ĐÃ HOÀN THÀNH** | Xác minh Registered Domain Extraction tuân thủ chuẩn Mozilla PSL. |
+| **🟠 P1** | **ĐÃ HOÀN THÀNH** | Hợp đồng 25 đặc trưng `lexical-v2` phân thành 4 nhóm logic. |
+| **🟠 P1** | **ĐÃ HOÀN THÀNH** | Tín hiệu Punycode (`xn--`) và mạo danh thương hiệu (`brand_terms.json`). |
+| **🟠 P1** | **ĐÃ HOÀN THÀNH** | Báo cáo hiệu chuẩn xác suất (ECE, Brier Score). |
+| **🟠 P1** | **ĐÃ HOÀN THÀNH** | Bộ benchmark Hard Negatives và Adversarial Evasion Tests. |
+| **🟠 P1** | **ĐÃ HOÀN THÀNH** | Cache key cô lập theo phiên bản mô hình và hợp đồng đặc trưng. |
+| **🟡 P2** | **ĐÃ HOÀN THÀNH** | Thực nghiệm Protocol B — Temporal Robustness Benchmark đo concept drift. |
+| **🟡 P2** | **ĐÃ HOÀN THÀNH** | Cặp endpoint `/health/live` và `/health/ready`. |
+| **🟡 P2** | **ĐÃ HOÀN THÀNH** | Viết lại toàn diện README, Model Card và Security Threat Model. |
+| **🟢 P3** | *Kế hoạch tương lai* | Bộ phân tích nội dung trang HTML (Page-Content Classifier) bổ trợ. |
+| **🟢 P3** | *Kế hoạch tương lai* | Cơ chế Hybrid: Tự động kích hoạt kiểm tra danh tiếng DNS/Domain Age khi điểm số ở mức MEDIUM. |
+
+---
+
+## 19. Trình Bày Trong CV / Phỏng Vấn
+
+**PhishGuard — Local-First Phishing URL Risk Intelligence Platform**
+
+- Thiết kế và phát triển nền tảng phát hiện URL lừa đảo cục bộ kết hợp **FastAPI Backend**, **XGBoost Native JSON** và **Chrome Extension Manifest V3**, đạt độ trễ suy luận **$p95 = 0.80\text{ ms}$**.
+- Giải quyết triệt để vấn đề rò rỉ dữ liệu bằng quy trình **Domain-Disjoint Split (Mozilla PSL)** trên 369.115 bản ghi, bảo đảm 100% zero overlap giữa các tập và đo lường tính tổng quát hóa trên **16.771 unseen registered domains**.
+- Nâng cấp hợp đồng đặc trưng lên **`lexical-v2` (25 features)** gồm 4 nhóm logic: Lexical Structure, Host/Domain, Brand Impersonation (từ điển version hóa) và Heuristics lẩn tránh Punycode/Redirection.
+- Thay thế tối ưu $F_1$ truyền thống bằng **Constrained Cost-Aware Threshold Optimization** ($\max \text{Recall} \text{ s.t. } \text{FPR} \le 0.5\%$), đạt **PR-AUC 0.9239** và **FPR 0.35%** trên tập Test độc lập.
+- Xây dựng kiến trúc bảo vệ quyền riêng tư nghiêm ngặt: toàn bộ suy luận thực hiện in-memory qua localhost, loại bỏ Query String trước khi ghi log lịch sử, đóng gói mô hình an toàn không phụ thuộc pickle runtime.
+
+---
+
+## Giấy Phép
+Dự án được phát hành mã nguồn mở theo giấy phép [MIT License](LICENSE).

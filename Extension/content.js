@@ -18,8 +18,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const warningUrl = new URL(chrome.runtime.getURL("warning.html"));
         warningUrl.searchParams.set("url", message.url || window.location.href);
 
-        if (typeof message.confidence === "number") {
-            warningUrl.searchParams.set("confidence", String(message.confidence));
+        const scoreVal = typeof message.model_score === "number" ? message.model_score : message.confidence;
+        if (typeof scoreVal === "number") {
+            warningUrl.searchParams.set("score", String(scoreVal));
+            warningUrl.searchParams.set("confidence", String(scoreVal));
         }
 
         // Chặn tải trang web nguy hiểm và điều hướng sang warning.html

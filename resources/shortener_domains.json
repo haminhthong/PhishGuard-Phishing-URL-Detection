@@ -1,0 +1,23 @@
+{
+  "version": "shortener-list-v1",
+  "updated_at": "2026-09-05",
+  "shorteners": [
+    "bit.ly",
+    "goo.gl",
+    "t.co",
+    "tinyurl.com",
+    "tiny.cc",
+    "is.gd",
+    "ow.ly",
+    "buff.ly",
+    "rebrand.ly",
+    "cutt.ly",
+    "shorturl.at",
+    "rb.gy",
+    "v.gd",
+    "clck.ru",
+    "s.id",
+    "bc.vc",
+    "adf.ly"
+  ]
+}

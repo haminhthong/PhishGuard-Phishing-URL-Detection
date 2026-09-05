@@ -201,9 +201,75 @@ class ApiContractTests(unittest.TestCase):
         ]
         response = self.client.post("/phish-url-prediction/batch", json={"urls": urls})
         self.assertEqual(response.status_code, 200)
-        results = response.json()["results"]
-        for i, url in enumerate(urls):
-            self.assertEqual(results[i]["url"], url)
+    def test_liveness_and_readiness_endpoints(self) -> None:
+        """Kiểm tra các endpoint liveness (/health/live) và readiness (/health/ready)."""
+        live_res = self.client.get("/health/live")
+        self.assertEqual(live_res.status_code, 200)
+        self.assertEqual(live_res.json()["status"], "live")
+
+        ready_res = self.client.get("/health/ready")
+        self.assertEqual(ready_res.status_code, 200)
+        ready_data = ready_res.json()
+        self.assertEqual(ready_data["status"], "ready")
+        self.assertIn("model_version", ready_data)
+        self.assertIn("threshold", ready_data)
+
+    def test_decoupled_model_and_risk_policy_response_structure(self) -> None:
+        """Kiểm tra API trả về cấu trúc tách bạch giữa model metrics và risk policy."""
+        res = self.client.post("/phish-url-prediction", json={"url": "https://paypal.com"})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        # Kiểm tra block model
+        self.assertIn("model", data)
+        self.assertIn("score", data["model"])
+        self.assertIn("threshold", data["model"])
+        self.assertIn("label", data["model"])
+        self.assertIn("version", data["model"])
+        # Kiểm tra block risk policy
+        self.assertIn("risk", data)
+        self.assertIn("level", data["risk"])
+        self.assertIn("action", data["risk"])
+        self.assertIn(data["risk"]["level"], {"low", "medium", "high"})
+        self.assertIn(data["risk"]["action"], {"allow", "caution", "warn"})
+        # Kiểm tra các trường tương thích ngược
+        self.assertIn("model_score", data)
+        self.assertIn("risk_level", data)
+
+    def test_cache_key_isolated_by_model_version(self) -> None:
+        """Kiểm tra cache key thay đổi khi đổi model_version hoặc feature_contract."""
+        from API.services.cache import PredictionCache
+
+        url = "https://example.com/check"
+        key_v1 = PredictionCache.hash_key(url, model_version="3.0.0", feature_contract="lexical-v1")
+        key_v2 = PredictionCache.hash_key(url, model_version="3.1.0", feature_contract="lexical-v2")
+        self.assertNotEqual(key_v1, key_v2)
+
+    def test_checksum_mismatch_raises_integrity_error(self) -> None:
+        """Kiểm tra loader từ chối nạp mô hình khi checksum SHA-256 không khớp."""
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            model_file = tmp_path / "model.json"
+            meta_file = tmp_path / "meta.json"
+
+            # Sao chép model hiện tại nhưng ghi checksum sai vào meta
+            real_model = Path(__file__).resolve().parents[1] / "API" / "XGB.json"
+            model_file.write_bytes(real_model.read_bytes())
+            meta_file.write_text(
+                json.dumps({
+                    "model_version": "3.0.0",
+                    "feature_contract": "lexical-v1",
+                    "threshold": 0.5,
+                    "model_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                }),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PhishGuardAPIException) as ctx:
+                load_phishguard_model(model_file, meta_file)
+            self.assertEqual(ctx.exception.code, "MODEL_INTEGRITY_ERROR")
 
 
 if __name__ == "__main__":

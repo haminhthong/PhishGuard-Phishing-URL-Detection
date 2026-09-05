@@ -50,8 +50,24 @@ class BatchURLRequest(BaseModel):
         return [normalize_web_url(val) for val in values]
 
 
+class ModelDetails(BaseModel):
+    """Chi tiết quyết định định lượng của mô hình Machine Learning."""
+
+    score: float
+    threshold: float
+    label: int
+    version: str
+
+
+class RiskDetails(BaseModel):
+    """Chính sách hành động an toàn của hệ thống phòng vệ."""
+
+    level: str
+    action: str
+
+
 class PredictionResponse(BaseModel):
-    """Kết quả phân loại một URL theo hợp đồng mới."""
+    """Kết quả phân loại và chính sách rủi ro cho một URL."""
 
     url: str
     label: int
@@ -61,6 +77,8 @@ class PredictionResponse(BaseModel):
     model_version: str
     feature_contract: str
     cached: bool = False
+    model: ModelDetails | None = None
+    risk: RiskDetails | None = None
 
 
 class BatchPredictionResponse(BaseModel):

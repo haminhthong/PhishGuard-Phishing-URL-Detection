@@ -1,23 +1,38 @@
-# Cấu hình huấn luyện và thử nghiệm mô hình PhishGuard ML
+# Cấu hình huấn luyện và thử nghiệm nền tảng PhishGuard ML
 random_seed: 42
-feature_contract: lexical-v1
+feature_contract: lexical-v2
 
 split:
   strategy: registered-domain
-  train: 0.70
+  train: 0.65
   validation: 0.15
-  test: 0.15
+  calibration: 0.10
+  test: 0.10
+
+model_selection:
+  primary_objective: pr_auc
+  guardrails:
+    min_recall: 0.80
+    max_fpr: 0.01
+    max_latency_p95_ms: 5.0
 
 model:
   type: XGBClassifier
-  max_depth: 5
-  learning_rate: 0.1
+  max_depth: 6
+  learning_rate: 0.08
   n_estimators: 300
   eval_metric: logloss
   random_state: 42
 
-threshold_search:
-  metric: pr_auc
+threshold_policy:
+  operating_mode: constrained_recall
+  target_fpr: 0.005
+  asymmetric_cost:
+    cost_fn: 10.0
+    cost_fp: 1.0
   risk_levels:
-    high: 0.80
-    medium: 0.55
+    high: 0.75
+    medium: 0.45
+
+calibration:
+  method: isotonic # isotonic | sigmoid

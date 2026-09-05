@@ -1,0 +1,27 @@
+[
+  {
+    "url": "https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&ved=2ahUKEwi7xP-123456789&url=https%3A%2F%2Fexample.org",
+    "category": "search_engine_redirect",
+    "description": "Google click tracking redirect with multiple query parameters"
+  },
+  {
+    "url": "https://github.com/login/oauth/authorize?client_id=Iv1.87654321&redirect_uri=https%3A%2F%2Fmyapp.com%2Fauth%2Fcallback&scope=read%3Auser&state=xyz987654321",
+    "category": "oauth_sso",
+    "description": "GitHub OAuth SSO authorization link"
+  },
+  {
+    "url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=00000000-0000-0000-0000-000000000000&response_type=code&redirect_uri=https%3A%2F%2Fportal.azure.com",
+    "category": "enterprise_sso",
+    "description": "Microsoft Online OAuth2 authorization URL"
+  },
+  {
+    "url": "https://company-assets-prod.s3.amazonaws.com/reports/2026/quarterly.pdf?AWSAccessKeyId=AKIAIOSFODNN7EXAMPLE&Signature=vjbyPxybdSpVkPtqqBbFuQmDa7k%3D&Expires=1800000000",
+    "category": "cloud_presigned_storage",
+    "description": "Amazon S3 signed resource URL with cryptographic signature in query"
+  },
+  {
+    "url": "https://d3c33hcgiwev3.cloudfront.net/imageAssetProxy.v1/public/logo.png?expiry=1750000000&hmac=abc123def456",
+    "category": "cdn_asset",
+    "description": "CloudFront CDN edge asset URL with hash verification"
+  }
+]
