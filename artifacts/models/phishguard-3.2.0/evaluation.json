@@ -1,0 +1,89 @@
+{
+  "dataset_name": "Test Set (Domain-Grouped Split, Zero Leakage)",
+  "test_size_rows": 37163,
+  "test_unique_domains": 11188,
+  "model_type": "XGBClassifier",
+  "model_version": "3.2.0",
+  "feature_contract": "lexical-v2",
+  "operating_threshold": 0.38,
+  "metrics": {
+    "accuracy": 0.9630815596157468,
+    "precision": 0.9860299720599441,
+    "recall": 0.8601816973188566,
+    "f1": 0.9188165680473372,
+    "roc_auc": 0.9548526006553624,
+    "pr_auc": 0.9312827818161806,
+    "false_positive_rate": 0.003909443082062764,
+    "false_negative_rate": 0.13981830268114337,
+    "brier_score": 0.03623770932732422,
+    "expected_calibration_error": 0.0377,
+    "true_negatives": 28027,
+    "false_positives": 110,
+    "false_negatives": 1262,
+    "true_positives": 7764,
+    "feature_extraction_p50_ms": 3.1929,
+    "feature_extraction_p95_ms": 13.1398,
+    "model_inference_p50_ms": 27.3299,
+    "model_inference_p95_ms": 101.3127,
+    "risk_policy_p50_ms": 0.0032,
+    "risk_policy_p95_ms": 0.0043,
+    "total_e2e_p50_ms": 31.1356,
+    "total_e2e_p95_ms": 121.281
+  },
+  "hard_slices": {
+    "brand_impersonation": {
+      "sample_count": 126,
+      "phishing_count": 97,
+      "legitimate_count": 29,
+      "recall": 0.9794,
+      "precision": 1.0,
+      "false_positive_rate": 0.0,
+      "f1": 0.9896,
+      "pr_auc": 0.9984
+    },
+    "shared_hosting_cloud": {
+      "count": 0,
+      "status": "no_samples"
+    },
+    "url_shortener": {
+      "sample_count": 2435,
+      "phishing_count": 2424,
+      "legitimate_count": 11,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": 0.0,
+      "f1": 1.0,
+      "pr_auc": 1.0
+    },
+    "punycode": {
+      "sample_count": 48,
+      "phishing_count": 47,
+      "legitimate_count": 1,
+      "recall": 1.0,
+      "precision": 1.0,
+      "false_positive_rate": 0.0,
+      "f1": 1.0,
+      "pr_auc": 1.0
+    },
+    "long_url": {
+      "sample_count": 5733,
+      "phishing_count": 451,
+      "legitimate_count": 5282,
+      "recall": 0.9424,
+      "precision": 0.9159,
+      "false_positive_rate": 0.0074,
+      "f1": 0.929,
+      "pr_auc": 0.9786
+    }
+  },
+  "latency_breakdown": {
+    "feature_extraction_p50_ms": 3.1929,
+    "feature_extraction_p95_ms": 13.1398,
+    "model_inference_p50_ms": 27.3299,
+    "model_inference_p95_ms": 101.3127,
+    "risk_policy_p50_ms": 0.0032,
+    "risk_policy_p95_ms": 0.0043,
+    "total_e2e_p50_ms": 31.1356,
+    "total_e2e_p95_ms": 121.281
+  }
+}

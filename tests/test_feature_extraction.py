@@ -24,10 +24,14 @@ FEATURE_FIXTURE_PATH = FIXTURES_DIR / "feature_contract.json"
 
 class FeatureExtractionTests(unittest.TestCase):
     def test_feature_count_and_order_contract(self) -> None:
-        """Đảm bảo hàm trả về đủ 12 đặc trưng đúng thứ tự cột của hợp đồng XGBoost."""
+        """Đảm bảo hàm trả về đủ 25 đặc trưng đúng thứ tự cột của hợp đồng chuẩn lexical-v2."""
         features = extract_features("https://example.com/account/login?id=123")
         self.assertEqual(tuple(features), FEATURE_COLUMNS)
-        self.assertEqual(len(features), 12)
+        self.assertEqual(len(features), 25)
+
+        # Legacy v1 kiểm tra rõ ràng
+        features_v1 = extract_features("https://example.com/account/login?id=123", contract="lexical-v1")
+        self.assertEqual(len(features_v1), 12)
 
     def test_detects_ip_address_hostname(self) -> None:
         """Kiểm tra khả năng nhận diện địa chỉ IPv4 và IPv6."""
@@ -46,7 +50,7 @@ class FeatureExtractionTests(unittest.TestCase):
         self.assertEqual(uses_shortening_service("https://notbit.ly/login"), 0)
 
     def test_golden_feature_contract_fixtures(self) -> None:
-        """Kiểm tra toàn bộ 23 mẫu URL trong tests/fixtures/feature_contract.json."""
+        """Kiểm tra toàn bộ 23 mẫu URL trong tests/fixtures/feature_contract.json theo hợp đồng v1."""
         self.assertTrue(FEATURE_FIXTURE_PATH.exists(), f"Không tìm thấy fixture file {FEATURE_FIXTURE_PATH}")
         with open(FEATURE_FIXTURE_PATH, encoding="utf-8") as f:
             fixtures = json.load(f)
@@ -55,7 +59,7 @@ class FeatureExtractionTests(unittest.TestCase):
             url = case["url"]
             expected = case["expected_features"]
             description = case.get("description", "")
-            actual = extract_features(url)
+            actual = extract_features(url, contract="lexical-v1")
             self.assertEqual(
                 actual,
                 expected,
@@ -78,14 +82,19 @@ class FeatureExtractionTests(unittest.TestCase):
         self.assertEqual(has_redirection_pattern("https://example.com/path/next"), 0)
 
     def test_lexical_character_counts(self) -> None:
-        """Kiểm tra đếm ký tự số, dấu chấm, @, gạch ngang, %, bằng."""
+        """Kiểm tra đếm ký tự số, dấu chấm, @, gạch ngang, %, bằng trên v1 và v2."""
         url = "https://user@test-domain.com:8080/path/123?a=1&b=20%20"
-        features = extract_features(url)
-        self.assertGreater(features["Digit_Count"], 0)
-        self.assertEqual(features["At_Count"], 1)
-        self.assertEqual(features["Hyphen_Count"], 1)
-        self.assertEqual(features["Equal_Count"], 2)
-        self.assertEqual(features["Per_Count"], 1)
+        features_v1 = extract_features(url, contract="lexical-v1")
+        self.assertGreater(features_v1["Digit_Count"], 0)
+        self.assertEqual(features_v1["At_Count"], 1)
+        self.assertEqual(features_v1["Hyphen_Count"], 1)
+        self.assertEqual(features_v1["Equal_Count"], 2)
+        self.assertEqual(features_v1["Per_Count"], 1)
+
+        features_v2 = extract_features(url, contract="lexical-v2")
+        self.assertGreater(features_v2["digit_ratio"], 0.0)
+        self.assertEqual(features_v2["at_count"], 1)
+        self.assertEqual(features_v2["hyphen_count"], 1)
 
     def test_handles_unicode_or_malformed_urls_gracefully(self) -> None:
         """Kiểm tra không bị sập khi gặp URL chứa unicode hoặc cú pháp bất thường."""

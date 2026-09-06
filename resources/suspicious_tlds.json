@@ -1,0 +1,26 @@
+{
+  "version": "suspicious-tlds-v1",
+  "updated_at": "2026-09-06",
+  "description": "High-risk cheap or frequently abused top-level domains for lexical heuristic scoring",
+  "tlds": [
+    "xyz",
+    "top",
+    "icu",
+    "buzz",
+    "cc",
+    "tk",
+    "ml",
+    "ga",
+    "cf",
+    "gq",
+    "work",
+    "fit",
+    "surf",
+    "click",
+    "link",
+    "club",
+    "rest",
+    "cam",
+    "vip"
+  ]
+}

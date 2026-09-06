@@ -34,6 +34,7 @@ class PredictorService:
     def __init__(self, loaded_model: LoadedModel, cache: PredictionCache) -> None:
         self.loaded_model = loaded_model
         self.model = loaded_model.model
+        self.calibrator = loaded_model.calibrator
         self.cache = cache
         self.threshold = loaded_model.threshold
         self.model_version = loaded_model.model_version
@@ -46,9 +47,9 @@ class PredictorService:
     def evaluate_risk_policy(self, score: float) -> tuple[str, str]:
         """
         Tách bạch quyết định của mô hình (probability/score) khỏi chính sách rủi ro sản phẩm:
-        - LOW: An toàn, không gián đoạn trải nghiệm người dùng
-        - MEDIUM: Nghi ngờ vừa, hiển thị badge cảnh báo mềm (soft warning)
-        - HIGH: Rủi ro cao, chặn và điều hướng sang trang cảnh báo (interstitial warning)
+        - LOW (< medium_threshold): An toàn -> Hành động: 'allow'
+        - MEDIUM (medium_threshold <= score < high_threshold): Nghi ngờ -> Hành động: 'caution'
+        - HIGH (>= high_threshold): Rủi ro cao -> Hành động: 'warn'
         """
         high_th = self.risk_thresholds.get("high", 0.75)
         medium_th = self.risk_thresholds.get("medium", 0.45)
@@ -68,7 +69,7 @@ class PredictorService:
             res["cached"] = True
             return res
 
-        # 2. Trích xuất đặc trưng in-memory theo hợp đồng đang hoạt động
+        # 2. Trích xuất đặc trưng in-memory theo hợp đồng đang hoạt động (trực tiếp từ raw url)
         try:
             features = extract_features(url, contract=self.feature_contract)
             input_frame = pd.DataFrame([features], columns=self.feature_columns)
@@ -80,11 +81,15 @@ class PredictorService:
                 status_code=400,
             ) from error
 
-        # 3. Model Inference
+        # 3. Model Inference & Calibration
         try:
             if hasattr(self.model, "predict_proba"):
                 probabilities = self.model.predict_proba(input_frame)[0]
-                model_score = round(float(probabilities[1]), 4)
+                raw_score = float(probabilities[1])
+                if self.calibrator is not None:
+                    model_score = round(float(self.calibrator.calibrate(raw_score)), 4)
+                else:
+                    model_score = round(raw_score, 4)
             else:
                 raw_label = int(self.model.predict(input_frame)[0])
                 model_score = 1.0 if raw_label == 1 else 0.0

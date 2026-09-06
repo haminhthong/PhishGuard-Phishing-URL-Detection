@@ -1,5 +1,4 @@
 fastapi==0.116.1
-joblib==1.5.1
 pandas==2.3.2
 pydantic==2.11.7
 scikit-learn==1.7.1
@@ -7,3 +6,4 @@ tld==0.13.1
 uvicorn[standard]==0.35.0
 xgboost==3.0.4
 httpx==0.28.1
+pyarrow>=15.0.0

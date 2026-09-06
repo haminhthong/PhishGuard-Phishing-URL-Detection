@@ -1,0 +1,32 @@
+{
+  "contract": "lexical-v2",
+  "feature_count": 25,
+  "features": [
+    "url_length",
+    "hostname_length",
+    "path_length",
+    "query_length",
+    "url_entropy",
+    "digit_ratio",
+    "special_char_ratio",
+    "dot_count",
+    "hyphen_count",
+    "at_count",
+    "path_depth",
+    "first_directory_length",
+    "subdomain_count",
+    "hostname_label_count",
+    "max_label_length",
+    "has_ip_address",
+    "tld_length",
+    "domain_length",
+    "is_suspicious_tld",
+    "has_punycode",
+    "brand_in_subdomain",
+    "brand_in_path",
+    "brand_not_registered_domain",
+    "uses_shortening_service",
+    "has_redirection_pattern"
+  ],
+  "contract_hash": "8a93d293d0459c70c6c71b8ce78f5ae979e7677d041670c3a8c708a044dc6636"
+}

@@ -53,6 +53,6 @@ FEATURE_COLUMNS_V2: tuple[str, ...] = (
     "has_redirection_pattern",
 )
 
-# Active contract for baseline (v1) / upgradeable to v2
-FEATURE_CONTRACT_VERSION = FEATURE_CONTRACT_V1
-FEATURE_COLUMNS = FEATURE_COLUMNS_V1
+# Active canonical contract for production (lexical-v2: 25 features)
+FEATURE_CONTRACT_VERSION = FEATURE_CONTRACT_V2
+FEATURE_COLUMNS = FEATURE_COLUMNS_V2

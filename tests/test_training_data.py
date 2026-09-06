@@ -20,15 +20,24 @@ class TrainingDataTests(unittest.TestCase):
                 "url": [
                     "https://safe-example.com/a",
                     "https://safe-example.com/a",
-                    "https://conflict-example.com/one",
-                    "https://sub.conflict-example.com/two",
+                    # Multi-label domain nhưng URLs khác nhau -> BẢO TỒN
+                    "https://shared-host.com/legit-page",
+                    "https://sub.shared-host.com/phish-page",
+                    # Exact canonical URL conflict (cùng URL mang cả nhãn 0 và 1) -> BỊ LOẠI
+                    "https://exact-conflict.com/same",
+                    "https://exact-conflict.com/same",
                     "not-a-url",
                 ],
-                "label": [0, 0, 0, 1, 1],
+                "label": [0, 0, 0, 1, 0, 1, 0],
             }
         )
         cleaned = clean_dataset(frame)
-        self.assertEqual(cleaned["url"].tolist(), ["https://safe-example.com/a"])
+        self.assertIn("https://safe-example.com/a", cleaned["url"].tolist())
+        self.assertIn("https://shared-host.com/legit-page", cleaned["url"].tolist())
+        self.assertIn("https://sub.shared-host.com/phish-page", cleaned["url"].tolist())
+        self.assertNotIn("https://exact-conflict.com/same", cleaned["url"].tolist())
+        self.assertNotIn("not-a-url", cleaned["url"].tolist())
+        self.assertEqual(len(cleaned), 3)
 
     def test_split_has_no_domain_overlap(self):
         rows = []

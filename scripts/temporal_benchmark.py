@@ -1,7 +1,7 @@
 """
-Script thực nghiệm Protocol B — Temporal Robustness Benchmark.
-Đánh giá độ suy giảm hiệu năng (Concept Drift) khi huấn luyện trên các chiến dịch quá khứ
-và kiểm thử trên các chiến dịch lừa đảo trong tương lai.
+Script thực nghiệm Protocol B — Phishing Temporal-Shift Experiment.
+Đánh giá độ suy giảm hiệu năng (Concept Drift) khi huấn luyện trên các chiến dịch phishing quá khứ
+và kiểm thử trên các chiến dịch phishing trong tương lai, kết hợp với holdout legitimate domain-disjoint.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+from sklearn.model_selection import GroupShuffleSplit
 from xgboost import XGBClassifier
 
 from phishguard.features import FEATURE_COLUMNS_V2, extract_features_v2
@@ -30,7 +31,7 @@ DRIFT_REPORT_JSON = ARTIFACTS_DIR / "temporal_drift_report.json"
 
 def main() -> None:
     print("=" * 65)
-    print(" ⏳ Bắt đầu Protocol B — Temporal Robustness Benchmark (Concept Drift)...")
+    print(" ⏳ Bắt đầu Protocol B — Phishing Temporal-Shift Experiment (Concept Drift)...")
     print("=" * 65)
 
     if not LEGIT_CSV.exists() or not PHISHING_CSV.exists():
@@ -49,9 +50,9 @@ def main() -> None:
         phishing_path=PHISHING_CSV,
     )
 
-    # Chia phishing theo thời gian
+    # 1. Chia phishing theo thời gian (Past campaigns <= T0 vs Future campaigns > T0)
     phish_cleaned = cleaned_df[cleaned_df["label"] == 1].copy()
-    print(f" Tổng số phishing URLs có thông tin: {len(phish_cleaned):,}")
+    print(f" Tổng số phishing URLs có thông tin thời gian: {len(phish_cleaned):,}")
 
     temporal_splits = temporal_split_protocol_b(phish_cleaned, test_ratio=0.20)
     train_phish = temporal_splits.train
@@ -60,11 +61,15 @@ def main() -> None:
     print(f" • Past campaigns (Train):   {len(train_phish):,} phishing URLs")
     print(f" • Future campaigns (Test):  {len(test_phish):,} phishing URLs")
 
-    # Ghép với mẫu URL legitimate tương ứng (chia theo domain để không overlap)
+    # 2. Chia legitimate URLs theo GroupShuffleSplit (bảo đảm zero domain overlap giữa train và test)
     legit_cleaned = cleaned_df[cleaned_df["label"] == 0].copy()
-    legit_train_size = int(len(legit_cleaned) * 0.80)
-    train_legit = legit_cleaned.iloc[:legit_train_size]
-    test_legit = legit_cleaned.iloc[legit_train_size:]
+    gss = GroupShuffleSplit(n_splits=1, test_size=0.20, random_state=42)
+    train_l_idx, test_l_idx = next(gss.split(legit_cleaned, groups=legit_cleaned["domain"]))
+    train_legit = legit_cleaned.iloc[train_l_idx].reset_index(drop=True)
+    test_legit = legit_cleaned.iloc[test_l_idx].reset_index(drop=True)
+
+    # Đảm bảo tuyệt đối không có domain overlap giữa train và test của legitimate
+    assert set(train_legit["domain"]).isdisjoint(set(test_legit["domain"])), "Leakage phát hiện trong temporal legit split!"
 
     train_combined = pd.concat([train_legit, train_phish]).sample(frac=1.0, random_state=42).reset_index(drop=True)
     test_combined = pd.concat([test_legit, test_phish]).sample(frac=1.0, random_state=42).reset_index(drop=True)
@@ -74,10 +79,11 @@ def main() -> None:
     train_sample = train_combined.sample(n=min(15000, len(train_combined)), random_state=42)
     test_sample = test_combined.sample(n=min(5000, len(test_combined)), random_state=42)
 
-    X_train = pd.DataFrame([extract_features_v2(u) for u in train_sample["url"]], columns=FEATURE_COLUMNS_V2)
+    url_col = "raw_url" if "raw_url" in train_sample.columns else "url"
+    X_train = pd.DataFrame([extract_features_v2(u) for u in train_sample[url_col]], columns=FEATURE_COLUMNS_V2)
     y_train = train_sample["label"].values
 
-    X_test = pd.DataFrame([extract_features_v2(u) for u in test_sample["url"]], columns=FEATURE_COLUMNS_V2)
+    X_test = pd.DataFrame([extract_features_v2(u) for u in test_sample[url_col]], columns=FEATURE_COLUMNS_V2)
     y_test = test_sample["label"].values
 
     print(" Huấn luyện mô hình XGBoost trên dữ liệu quá khứ...")
@@ -90,13 +96,17 @@ def main() -> None:
     metrics = classification_metrics(y_test, y_preds, y_scores)
 
     report = {
-        "protocol": "Protocol B — Temporal Robustness Benchmark",
+        "protocol": "Protocol B — Phishing Temporal-Shift Experiment",
         "train_phishing_count": len(train_phish),
         "test_future_phishing_count": len(test_phish),
+        "train_legit_count": len(train_legit),
+        "test_legit_count": len(test_legit),
+        "legit_domain_disjoint": True,
         "metrics_on_future_campaigns": metrics,
         "observations": (
             "Hiệu năng trên các chiến dịch lừa đảo trong tương lai phản ánh mức độ concept drift của các "
-            "kỹ thuật phishing mới so với các chiến dịch cũ trong quá khứ."
+            "kỹ thuật phishing mới so với các chiến dịch cũ trong quá khứ, kết hợp với legitimate holdout "
+            "được chia domain-disjoint nhằm chống data leakage triệt để."
         ),
     }
 
@@ -105,7 +115,7 @@ def main() -> None:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
     print("\n" + "=" * 65)
-    print(" 📊 KẾT QUẢ PROTOCOL B (TEMPORAL ROBUSTNESS)")
+    print(" 📊 KẾT QUẢ PROTOCOL B (TEMPORAL DRIFT)")
     print("=" * 65)
     print(f" • PR-AUC trên Future Campaigns: {metrics['pr_auc']:.4f}")
     print(f" • ROC-AUC:                      {metrics['roc_auc']:.4f}")

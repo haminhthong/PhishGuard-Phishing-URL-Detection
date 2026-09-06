@@ -1,4 +1,5 @@
-# Cấu hình huấn luyện và thử nghiệm nền tảng PhishGuard ML
+# Cấu hình huấn luyện, hiệu chuẩn và kiểm thử nền tảng PhishGuard ML
+model_version: "3.2.0"
 random_seed: 42
 feature_contract: lexical-v2
 
@@ -24,6 +25,9 @@ model:
   eval_metric: logloss
   random_state: 42
 
+calibration:
+  method: isotonic # isotonic | sigmoid
+
 threshold_policy:
   operating_mode: constrained_recall
   target_fpr: 0.005
@@ -34,5 +38,13 @@ threshold_policy:
     high: 0.75
     medium: 0.45
 
-calibration:
-  method: isotonic # isotonic | sigmoid
+promotion_policy:
+  validation:
+    min_pr_auc: 0.85
+    min_recall: 0.80
+    max_fpr: 0.01
+  calibration:
+    max_ece: 0.05
+    operating_max_fpr: 0.005
+  serving:
+    max_model_p95_ms: 5.0

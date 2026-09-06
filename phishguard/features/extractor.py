@@ -8,6 +8,7 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
+from typing import Any
 from urllib.parse import ParseResult, urlparse
 
 from tld import get_fld, get_tld
@@ -23,11 +24,23 @@ from .contract import (
 RESOURCES_DIR = Path(__file__).resolve().parents[2] / "resources"
 BRAND_TERMS_PATH = RESOURCES_DIR / "brand_terms.json"
 SHORTENER_DOMAINS_PATH = RESOURCES_DIR / "shortener_domains.json"
+SUSPICIOUS_TLDS_PATH = RESOURCES_DIR / "suspicious_tlds.json"
 
-SUSPICIOUS_TLDS = {
-    "xyz", "top", "icu", "buzz", "cc", "tk", "ml", "ga", "cf", "gq",
-    "work", "fit", "surf", "click", "link", "club", "rest", "cam", "vip",
-}
+
+def _load_suspicious_tlds() -> set[str]:
+    """Nạp danh sách TLD rủi ro cao có version từ file tài nguyên."""
+    if SUSPICIOUS_TLDS_PATH.is_file():
+        try:
+            with open(SUSPICIOUS_TLDS_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+                return set(tld.lower().strip(".") for tld in data.get("tlds", []))
+        except Exception:
+            pass
+    # Fallback mặc định an toàn
+    return {
+        "xyz", "top", "icu", "buzz", "cc", "tk", "ml", "ga", "cf", "gq",
+        "work", "fit", "surf", "click", "link", "club", "rest", "cam", "vip",
+    }
 
 
 def _load_shortener_domains() -> set[str]:
@@ -75,6 +88,7 @@ def _load_brand_terms() -> list[dict[str, Any]]:
     ]
 
 
+SUSPICIOUS_TLDS = _load_suspicious_tlds()
 KNOWN_SHORTENERS = _load_shortener_domains()
 KNOWN_BRANDS = _load_brand_terms()
 
@@ -338,7 +352,17 @@ def extract_features_v2(url: str) -> dict[str, int | float]:
 
 
 def extract_features(url: str, contract: str = FEATURE_CONTRACT_VERSION) -> dict[str, Any]:
-    """Hàm trích xuất đặc trưng chính dựa trên phiên bản hợp đồng được chỉ định."""
+    """
+    Hàm trích xuất đặc trưng chính với cơ chế Fail-Fast bảo vệ an toàn runtime:
+    - Nếu contract là FEATURE_CONTRACT_V1: trả về 12 đặc trưng legacy.
+    - Nếu contract là FEATURE_CONTRACT_V2: trả về 25 đặc trưng canonical.
+    - Nếu contract không hợp lệ: LẬP TỨC crash bằng ValueError, không đoán mò hay fallback ngầm.
+    """
     if contract == FEATURE_CONTRACT_V1:
         return extract_features_v1(url)
-    return extract_features_v2(url)
+    if contract == FEATURE_CONTRACT_V2:
+        return extract_features_v2(url)
+    raise ValueError(
+        f"Unsupported feature contract: '{contract}'. "
+        f"Only supported contracts are: {[FEATURE_CONTRACT_V1, FEATURE_CONTRACT_V2]}"
+    )

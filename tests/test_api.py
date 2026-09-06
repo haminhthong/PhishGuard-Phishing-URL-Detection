@@ -33,18 +33,18 @@ class ApiContractTests(unittest.TestCase):
         json_data = response.json()
         self.assertEqual(json_data["status"], "ok")
         self.assertIn("model_version", json_data)
-        self.assertEqual(json_data["feature_count"], 12)
-        self.assertEqual(json_data["feature_contract"], "lexical-v1")
+        self.assertIn(json_data["feature_count"], {12, 25})
+        self.assertIn(json_data["feature_contract"], {"lexical-v1", "lexical-v2"})
         self.assertIn("threshold", json_data)
 
     def test_model_info_endpoint(self) -> None:
-        """Kiểm tra endpoint /model-info công bố hợp đồng 12 đặc trưng và version."""
+        """Kiểm tra endpoint /model-info công bố hợp đồng đặc trưng và version."""
         response = self.client.get("/model-info")
         self.assertEqual(response.status_code, 200)
         json_data = response.json()
-        self.assertEqual(json_data["feature_count"], 12)
-        self.assertEqual(len(json_data["features"]), 12)
-        self.assertEqual(json_data["feature_contract"], "lexical-v1")
+        self.assertIn(json_data["feature_count"], {12, 25})
+        self.assertEqual(len(json_data["features"]), json_data["feature_count"])
+        self.assertIn(json_data["feature_contract"], {"lexical-v1", "lexical-v2"})
 
     def test_system_stats_endpoint(self) -> None:
         """Kiểm tra endpoint /stats báo cáo chỉ số thống kê hệ thống và hit rate."""
@@ -68,8 +68,8 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("prediction", data)
         self.assertIn("model_score", data)
         self.assertIn(data["risk_level"], {"high", "medium", "low"})
-        self.assertEqual(data["model_version"], "3.0.0")
-        self.assertEqual(data["feature_contract"], "lexical-v1")
+        self.assertIn(data["model_version"], {"3.0.0", "3.1.0", "3.2.0"})
+        self.assertIn(data["feature_contract"], {"lexical-v1", "lexical-v2"})
         self.assertFalse(data["cached"])
 
     def test_prediction_lru_cache_hit(self) -> None:

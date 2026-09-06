@@ -1,0 +1,15 @@
+{
+  "seed": 42,
+  "train_rows": 266997,
+  "validation_rows": 57600,
+  "calibration_rows": 33274,
+  "test_rows": 37163,
+  "train_domains": 72717,
+  "validation_domains": 16781,
+  "calibration_domains": 11188,
+  "test_domains": 11188,
+  "train_positive_rate": 0.1263,
+  "val_positive_rate": 0.0699,
+  "cal_positive_rate": 0.0806,
+  "test_positive_rate": 0.2429
+}

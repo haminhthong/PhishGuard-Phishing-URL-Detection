@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import pandas as pd
 import yaml
 
 from phishguard.training.data import (
+    DatasetManifest,
     audit_and_clean_data,
+    create_split_manifest,
     split_by_domain,
     split_by_domain_4way,
 )
@@ -56,8 +59,9 @@ def main() -> None:
             config = yaml.safe_load(f)
 
     split_cfg = config.get("split", {})
-    cal_size = split_cfg.get("calibration", 0.0)
+    cal_size = split_cfg.get("calibration", 0.10)
     random_seed = config.get("random_seed", 42)
+    dataset_version = config.get("model_version", "3.2.0")
 
     legit_df = pd.read_csv(LEGIT_CSV)
     phishing_df = pd.read_csv(PHISHING_CSV)
@@ -70,8 +74,27 @@ def main() -> None:
     )
 
     print(f" Dữ liệu đã làm sạch: {len(cleaned_df):,} bản ghi ({report['cleaned_unique_domains']:,} unique domains)")
+    print(f" Multi-label domains bảo tồn: {report['multi_label_domains_preserved_count']:,} domains ({report['multi_label_rows_preserved']:,} URLs)")
 
-    # Lưu báo cáo data audit
+    # Lưu DatasetManifest
+    dataset_manifest = DatasetManifest(
+        dataset_version=f"v{dataset_version}",
+        source_checksums={
+            "legitimate": report.get("legitimate_sha256"),
+            "phishing": report.get("phishing_sha256"),
+        },
+        rows_raw=report["legitimate_rows"] + report["phishing_rows"],
+        rows_clean=report["cleaned_total_rows"],
+        unique_canonical_urls=report["cleaned_unique_canonical_urls"],
+        unique_domains=report["cleaned_unique_domains"],
+        label_distribution=report["cleaned_label_distribution"],
+        exact_conflicts_removed=report["exact_conflicts_removed"],
+        multi_label_domains_preserved=report["multi_label_domains_preserved_count"],
+    )
+
+    with open(ARTIFACTS_DIR / "dataset_manifest.json", "w", encoding="utf-8") as f:
+        json.dump(asdict(dataset_manifest), f, indent=2, ensure_ascii=False)
+
     with open(ARTIFACTS_DIR / "data_quality_report.json", "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
@@ -89,6 +112,10 @@ def main() -> None:
         print(f" • Validation set:  {len(splits_4way.validation):,} rows | {splits_4way.validation['domain'].nunique():,} domains")
         print(f" • Calibration set: {len(splits_4way.calibration):,} rows | {splits_4way.calibration['domain'].nunique():,} domains")
         print(f" • Test set:        {len(splits_4way.test):,} rows | {splits_4way.test['domain'].nunique():,} domains")
+
+        split_manifest = create_split_manifest(splits_4way, seed=random_seed)
+        with open(ARTIFACTS_DIR / "split_manifest.json", "w", encoding="utf-8") as f:
+            json.dump(asdict(split_manifest), f, indent=2, ensure_ascii=False)
 
         save_split_dataframe(splits_4way.train, SPLITS_DIR / "train")
         save_split_dataframe(splits_4way.validation, SPLITS_DIR / "validation")
