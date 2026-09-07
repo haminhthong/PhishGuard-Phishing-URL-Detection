@@ -34,7 +34,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(json_data["status"], "ok")
         self.assertIn("model_version", json_data)
         self.assertIn(json_data["feature_count"], {12, 25})
-        self.assertIn(json_data["feature_contract"], {"lexical-v1", "lexical-v2"})
+        self.assertIn(json_data["feature_contract"], {"lexical-v1", "lexical-v2", "lexical-v3"})
         self.assertIn("threshold", json_data)
 
     def test_model_info_endpoint(self) -> None:
@@ -44,7 +44,7 @@ class ApiContractTests(unittest.TestCase):
         json_data = response.json()
         self.assertIn(json_data["feature_count"], {12, 25})
         self.assertEqual(len(json_data["features"]), json_data["feature_count"])
-        self.assertIn(json_data["feature_contract"], {"lexical-v1", "lexical-v2"})
+        self.assertIn(json_data["feature_contract"], {"lexical-v1", "lexical-v2", "lexical-v3"})
 
     def test_system_stats_endpoint(self) -> None:
         """Kiểm tra endpoint /stats báo cáo chỉ số thống kê hệ thống và hit rate."""
@@ -69,7 +69,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("model_score", data)
         self.assertIn(data["risk_level"], {"high", "medium", "low"})
         self.assertIn(data["model_version"], {"3.0.0", "3.1.0", "3.2.0"})
-        self.assertIn(data["feature_contract"], {"lexical-v1", "lexical-v2"})
+        self.assertIn(data["feature_contract"], {"lexical-v1", "lexical-v2", "lexical-v3"})
         self.assertFalse(data["cached"])
 
     def test_prediction_lru_cache_hit(self) -> None:
@@ -230,7 +230,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("level", data["risk"])
         self.assertIn("action", data["risk"])
         self.assertIn(data["risk"]["level"], {"low", "medium", "high"})
-        self.assertIn(data["risk"]["action"], {"allow", "caution", "warn"})
+        self.assertIn(data["risk"]["action"], {"allow", "caution", "block"})
         # Kiểm tra các trường tương thích ngược
         self.assertIn("model_score", data)
         self.assertIn("risk_level", data)

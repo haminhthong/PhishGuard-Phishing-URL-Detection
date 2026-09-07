@@ -3,6 +3,7 @@
 from .baseline import RuleBasedPhishingClassifier, create_baseline_models
 from .data import (
     DatasetSplits,
+    FiveWayDatasetSplits,
     FourWayDatasetSplits,
     TemporalSplits,
     audit_and_clean_data,
@@ -10,6 +11,8 @@ from .data import (
     registered_domain,
     split_by_domain,
     split_by_domain_4way,
+    split_by_domain_5way,
+    temporal_split_future_unseen_domains,
     temporal_split_protocol_b,
 )
 from .evaluation import (
@@ -22,6 +25,7 @@ from .evaluation import (
 __all__ = [
     "DatasetSplits",
     "FourWayDatasetSplits",
+    "FiveWayDatasetSplits",
     "RuleBasedPhishingClassifier",
     "TemporalSplits",
     "audit_and_clean_data",
@@ -33,6 +37,8 @@ __all__ = [
     "registered_domain",
     "split_by_domain",
     "split_by_domain_4way",
+    "split_by_domain_5way",
     "temporal_split_protocol_b",
+    "temporal_split_future_unseen_domains",
     "threshold_sweep",
 ]

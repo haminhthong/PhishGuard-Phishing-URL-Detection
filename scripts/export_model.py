@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-import datetime
 import hashlib
 import json
 import shutil
 import sys
 from pathlib import Path
 
-import xgboost
 import yaml
 from xgboost import XGBClassifier
 
 from phishguard.features import (
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
+    FEATURE_COLUMNS_V3,
     FEATURE_CONTRACT_V2,
+    FEATURE_CONTRACT_V3,
 )
 from phishguard.training.data import compute_sha256
 
@@ -66,7 +66,9 @@ def main() -> None:
         model_file = model_dir / "XGB.json"
 
     if not model_file.exists():
-        raise FileNotFoundError(f"Không tìm thấy file mô hình tại {model_file}. Vui lòng chạy scripts/train.py trước.")
+        raise FileNotFoundError(
+            f"Không tìm thấy file mô hình tại {model_file}. Vui lòng chạy scripts/train.py trước."
+        )
 
     # 2. Nạp mô hình kiểm tra tính toàn vẹn
     model = XGBClassifier()
@@ -82,8 +84,13 @@ def main() -> None:
             metadata = json.load(f)
 
     feature_contract = metadata.get("feature_contract", FEATURE_CONTRACT_V2)
-    cols = FEATURE_COLUMNS_V2 if feature_contract == FEATURE_CONTRACT_V2 else FEATURE_COLUMNS_V1
+    cols = {
+        "lexical-v1": FEATURE_COLUMNS_V1,
+        FEATURE_CONTRACT_V2: FEATURE_COLUMNS_V2,
+        FEATURE_CONTRACT_V3: FEATURE_COLUMNS_V3,
+    }[feature_contract]
     contract_hash = compute_feature_contract_hash(cols)
+    metadata["feature_contract_hash"] = contract_hash
 
     # 4. Kiểm tra Quality Gate từ centralized promotion policy
     test_report_path = ARTIFACTS_DIR / "test_evaluation_report.json"
@@ -94,8 +101,13 @@ def main() -> None:
             test_metrics = test_report.get("metrics", {})
 
     pr_auc = test_metrics.get("pr_auc", metadata.get("validation_metrics", {}).get("pr_auc", 0.0))
-    fpr = test_metrics.get("false_positive_rate", metadata.get("validation_metrics", {}).get("false_positive_rate", 1.0))
-    p95_lat = test_metrics.get("p95_latency_ms", metadata.get("validation_metrics", {}).get("p95_latency_ms", 999.0))
+    fpr = test_metrics.get(
+        "false_positive_rate",
+        metadata.get("validation_metrics", {}).get("false_positive_rate", 1.0),
+    )
+    p95_lat = test_metrics.get(
+        "p95_latency_ms", metadata.get("validation_metrics", {}).get("p95_latency_ms", 999.0)
+    )
 
     min_pr = val_pol.get("min_pr_auc", 0.85)
     max_fpr = val_pol.get("max_fpr", 0.01)

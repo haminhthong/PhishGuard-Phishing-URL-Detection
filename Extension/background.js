@@ -6,7 +6,7 @@
  * 2. Kiểm tra danh sách trắng cục bộ (Local Whitelist) và công tắc bảo vệ.
  * 3. Gửi yêu cầu kiểm tra URL tới REST API FastAPI (127.0.0.1:5000/phish-url-prediction).
  * 4. Quản lý Tab Token bất đồng bộ nhằm ngăn chặn hiện tượng Race Condition khi đổi tab nhanh.
- * 5. Cập nhật Dynamic Badge Icon trên Chrome Toolbar (SAFE, WARN, OFF, ?).
+ * 5. Cập nhật Dynamic Badge Icon trên Chrome Toolbar (ALLOW, CAUTION, BLOCK, ?).
  * 6. Lưu trữ lịch sử quét sanitized real-time (không lưu query string nhạy cảm).
  */
 importScripts("config.js");
@@ -93,16 +93,17 @@ function updateToolbarBadge(tabId, statusText, colorHex) {
 /**
  * Lưu vết kết quả quét URL đã làm sạch vào lịch sử (Tối đa 10 mục mới nhất).
  */
-async function recordScanHistory(url, label, modelScore, riskLevel) {
+async function recordScanHistory(url, action, riskScore, riskLevel, policyVersion) {
     try {
         const data = await chrome.storage.local.get(KEYS.scanHistory);
         let history = data[KEYS.scanHistory] || [];
         const sanitizedUrl = sanitizeUrlForHistory(url);
         const newEntry = {
             url: sanitizedUrl,
-            label,
-            model_score: modelScore,
+            action,
+            score_bucket: Math.min(10, Math.floor(Number(riskScore || 0) * 10)),
             risk_level: riskLevel,
+            policy_version: policyVersion || "unknown",
             timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
         };
         history = history.filter(item => item.url !== sanitizedUrl);
@@ -235,7 +236,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }
 
     if (allowedOnce.delete(tab.url) || (await isDomainWhitelisted(tab.url))) {
-        updateToolbarBadge(tabId, "SAFE", "#22c55e");
+        updateToolbarBadge(tabId, "ALLOW", "#22c55e");
         return;
     }
 
@@ -248,29 +249,34 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
         if (pendingChecks.get(tabId) !== checkToken) return;
 
-        const score = result.model_score !== undefined ? result.model_score : (result.model?.score ?? 0.0);
-        const riskLevel = (result.risk?.level || result.risk_level || "low").toLowerCase();
-        const riskAction = (result.risk?.action || (riskLevel === "high" ? "warn" : riskLevel === "medium" ? "caution" : "allow")).toLowerCase();
+        const score = Number(result.phishing_risk_score ?? result.model_score ?? result.model?.score);
+        const riskLevel = String(result.risk_level ?? result.risk?.level ?? "").toLowerCase();
+        const riskAction = String(result.action ?? result.risk?.action ?? "").toLowerCase();
+        if (!Number.isFinite(score) || !["allow", "caution", "block"].includes(riskAction)) {
+            throw new Error("API thiếu risk score hoặc action policy hợp lệ");
+        }
 
         // Chỉ lưu URL đã làm sạch (bỏ query & hash) vào lịch sử để bảo vệ quyền riêng tư
-        await recordScanHistory(tab.url, result.label, score, riskLevel);
+        await recordScanHistory(tab.url, riskAction, score, riskLevel, result.policy_version);
 
-        if (riskLevel === "high" || riskAction === "warn") {
-            // HIGH RISK: Hiển thị badge ALERT và kích hoạt màn hình chặn cảnh báo (interstitial warning)
-            updateToolbarBadge(tabId, "ALERT", "#ef4444");
+        if (riskAction === "block") {
+            // BLOCK: Hiển thị cảnh báo và kích hoạt interstitial.
+            updateToolbarBadge(tabId, "BLOCK", "#ef4444");
             chrome.tabs.sendMessage(tabId, {
                 type: "PHISHING_DETECTED",
                 url: tab.url,
                 model_score: score,
                 confidence: score,
-                risk_level: "high"
+                risk_level: riskLevel,
+                action: "block",
+                policy_version: result.policy_version || "unknown"
             }).catch(() => {});
-        } else if (riskLevel === "medium" || riskAction === "caution") {
-            // MEDIUM RISK: Soft warning qua toolbar badge cảnh báo, không gián đoạn luồng duyệt web
-            updateToolbarBadge(tabId, "WARN", "#f59e0b");
+        } else if (riskAction === "caution") {
+            // CAUTION: Cảnh báo mềm, không tự động chặn điều hướng.
+            updateToolbarBadge(tabId, "CAUTION", "#f59e0b");
         } else {
-            // LOW RISK: Xác định an toàn lexical
-            updateToolbarBadge(tabId, "SAFE", "#22c55e");
+            // ALLOW: rủi ro phishing lexical thấp, không phải cam kết an toàn.
+            updateToolbarBadge(tabId, "ALLOW", "#22c55e");
         }
     } catch (error) {
         // Fail-safe: Khi API offline, thông báo "Protection unavailable" qua badge ?, KHÔNG giả lập verdict an toàn

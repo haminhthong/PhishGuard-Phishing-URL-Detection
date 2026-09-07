@@ -1,13 +1,11 @@
-"""Trích xuất đặc trưng lexical v1 và v2 dùng chung cho training và inference."""
+"""Trích xuất đặc trưng lexical dùng chung cho training và inference."""
 
 from __future__ import annotations
 
 import ipaddress
-import json
 import math
 import re
 from collections import Counter
-from pathlib import Path
 from typing import Any
 from urllib.parse import ParseResult, urlparse
 
@@ -18,79 +16,14 @@ from .contract import (
     FEATURE_COLUMNS_V2,
     FEATURE_CONTRACT_V1,
     FEATURE_CONTRACT_V2,
+    FEATURE_CONTRACT_V3,
     FEATURE_CONTRACT_VERSION,
 )
+from .resources import RESOURCE_BUNDLE
 
-RESOURCES_DIR = Path(__file__).resolve().parents[2] / "resources"
-BRAND_TERMS_PATH = RESOURCES_DIR / "brand_terms.json"
-SHORTENER_DOMAINS_PATH = RESOURCES_DIR / "shortener_domains.json"
-SUSPICIOUS_TLDS_PATH = RESOURCES_DIR / "suspicious_tlds.json"
-
-
-def _load_suspicious_tlds() -> set[str]:
-    """Nạp danh sách TLD rủi ro cao có version từ file tài nguyên."""
-    if SUSPICIOUS_TLDS_PATH.is_file():
-        try:
-            with open(SUSPICIOUS_TLDS_PATH, encoding="utf-8") as f:
-                data = json.load(f)
-                return set(tld.lower().strip(".") for tld in data.get("tlds", []))
-        except Exception:
-            pass
-    # Fallback mặc định an toàn
-    return {
-        "xyz", "top", "icu", "buzz", "cc", "tk", "ml", "ga", "cf", "gq",
-        "work", "fit", "surf", "click", "link", "club", "rest", "cam", "vip",
-    }
-
-
-def _load_shortener_domains() -> set[str]:
-    """Nạp danh sách tên miền rút gọn có version từ file tài nguyên."""
-    if SHORTENER_DOMAINS_PATH.is_file():
-        try:
-            with open(SHORTENER_DOMAINS_PATH, encoding="utf-8") as f:
-                data = json.load(f)
-                return set(domain.lower() for domain in data.get("shorteners", []))
-        except Exception:
-            pass
-    # Fallback mặc định an toàn
-    return {
-        "bit.ly", "goo.gl", "t.co", "tinyurl.com", "tiny.cc", "is.gd",
-        "ow.ly", "buff.ly", "rebrand.ly", "cutt.ly", "shorturl.at", "rb.gy", "v.gd",
-    }
-
-
-def _load_brand_terms() -> list[dict[str, Any]]:
-    """Nạp danh mục thương hiệu và tên miền chính thức có version."""
-    if BRAND_TERMS_PATH.is_file():
-        try:
-            with open(BRAND_TERMS_PATH, encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("brands", [])
-        except Exception:
-            pass
-    # Fallback mặc định
-    return [
-        {"name": "paypal", "official_domains": ["paypal.com", "paypal.me"]},
-        {"name": "google", "official_domains": ["google.com", "google.com.vn", "google.co.in", "gmail.com", "youtube.com"]},
-        {"name": "microsoft", "official_domains": ["microsoft.com", "live.com", "office.com", "outlook.com"]},
-        {"name": "apple", "official_domains": ["apple.com", "icloud.com"]},
-        {"name": "amazon", "official_domains": ["amazon.com", "aws.amazon.com"]},
-        {"name": "facebook", "official_domains": ["facebook.com", "fb.com", "instagram.com"]},
-        {"name": "netflix", "official_domains": ["netflix.com"]},
-        {"name": "chase", "official_domains": ["chase.com"]},
-        {"name": "wellsfargo", "official_domains": ["wellsfargo.com"]},
-        {"name": "bankofamerica", "official_domains": ["bankofamerica.com", "bofa.com"]},
-        {"name": "binance", "official_domains": ["binance.com"]},
-        {"name": "coinbase", "official_domains": ["coinbase.com"]},
-        {"name": "steam", "official_domains": ["steampowered.com", "steamcommunity.com"]},
-        {"name": "dhl", "official_domains": ["dhl.com"]},
-        {"name": "allegro", "official_domains": ["allegro.pl", "allegrolokalnie.pl"]},
-    ]
-
-
-SUSPICIOUS_TLDS = _load_suspicious_tlds()
-KNOWN_SHORTENERS = _load_shortener_domains()
-KNOWN_BRANDS = _load_brand_terms()
+SUSPICIOUS_TLDS = set(RESOURCE_BUNDLE.suspicious_tlds)
+KNOWN_SHORTENERS = set(RESOURCE_BUNDLE.shorteners)
+KNOWN_BRANDS = list(RESOURCE_BUNDLE.brands)
 
 
 def parse_url(url: str) -> ParseResult:
@@ -279,7 +212,7 @@ def extract_features_v1(url: str) -> dict[str, int]:
 
 def extract_features_v2(url: str) -> dict[str, int | float]:
     """
-    Tạo 25 đặc trưng theo hợp đồng lexical-v2 phân thành 4 nhóm:
+    Tạo 25 đặc trưng lexical-v2/v3 phân thành 4 nhóm:
     A. Cấu trúc Lexical & Ratios
     B. Host & Domain
     C. Brand Impersonation
@@ -308,7 +241,7 @@ def extract_features_v2(url: str) -> dict[str, int | float]:
 
     try:
         reg_domain = get_fld(url, fail_silently=True) or hostname
-    except Exception:
+    except (TypeError, ValueError):
         reg_domain = hostname
     domain_len = len(reg_domain)
 
@@ -360,9 +293,9 @@ def extract_features(url: str, contract: str = FEATURE_CONTRACT_VERSION) -> dict
     """
     if contract == FEATURE_CONTRACT_V1:
         return extract_features_v1(url)
-    if contract == FEATURE_CONTRACT_V2:
+    if contract in {FEATURE_CONTRACT_V2, FEATURE_CONTRACT_V3}:
         return extract_features_v2(url)
     raise ValueError(
         f"Unsupported feature contract: '{contract}'. "
-        f"Only supported contracts are: {[FEATURE_CONTRACT_V1, FEATURE_CONTRACT_V2]}"
+        f"Only supported contracts are: {[FEATURE_CONTRACT_V1, FEATURE_CONTRACT_V2, FEATURE_CONTRACT_V3]}"
     )

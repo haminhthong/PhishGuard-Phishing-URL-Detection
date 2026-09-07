@@ -6,16 +6,14 @@ và duy trì tính toàn vẹn bảo mật từ Data Ingestion đến Online Ser
 
 from __future__ import annotations
 
-import tempfile
 import unittest
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from xgboost import XGBClassifier
 
 from API.services.predictor import safe_log_host
 from phishguard.calibration import (
+    ActionPolicy,
     CalibrationArtifact,
     ProbabilityCalibrator,
     RiskPolicyConfig,
@@ -23,14 +21,13 @@ from phishguard.calibration import (
 )
 from phishguard.features import (
     FEATURE_COLUMNS_V2,
-    FEATURE_CONTRACT_V1,
     FEATURE_CONTRACT_V2,
     extract_features,
 )
 from phishguard.training.data import (
     clean_dataset,
-    registered_domain,
     split_by_domain_4way,
+    split_by_domain_5way,
     temporal_split_protocol_b,
 )
 
@@ -202,7 +199,7 @@ class LifecycleInvariantsTests(unittest.TestCase):
 
     def test_api_artifact_version_matches_metadata(self) -> None:
         """
-        Bất biến 11: Feature contract v2 có đúng 25 tên đặc trưng.
+        Bất biến 11: Feature contract v2 legacy có đúng 25 tên đặc trưng.
         """
         self.assertEqual(len(FEATURE_COLUMNS_V2), 25)
         self.assertEqual(FEATURE_CONTRACT_V2, "lexical-v2")
@@ -220,6 +217,36 @@ class LifecycleInvariantsTests(unittest.TestCase):
         # Kiểm tra reject thứ tự sai
         with self.assertRaises(ValueError):
             RiskPolicyConfig(high_threshold=0.30, medium_threshold=0.80)
+
+    def test_action_policy_is_the_canonical_browser_decision(self) -> None:
+        """Bất biến P0: browser chỉ nhận allow/caution/block từ một policy."""
+        policy = ActionPolicy(caution_threshold=0.40, block_threshold=0.80)
+        self.assertEqual(policy.evaluate(0.39), ("low", "allow"))
+        self.assertEqual(policy.evaluate(0.40), ("medium", "caution"))
+        self.assertEqual(policy.evaluate(0.80), ("high", "block"))
+        with self.assertRaises(ValueError):
+            policy.evaluate(float("nan"))
+
+    def test_five_way_split_is_group_safe_and_stratified(self) -> None:
+        """Bất biến P0: 5 split không leak domain và giữ prior gần nhau."""
+        rows = [
+            {"url": f"https://domain-{index}.org/path", "label": index % 2}
+            for index in range(200)
+        ]
+        splits = split_by_domain_5way(pd.DataFrame(rows), random_state=42)
+        frames = [
+            splits.train,
+            splits.validation,
+            splits.calibration,
+            splits.policy_validation,
+            splits.test,
+        ]
+        domains = [set(frame["domain"]) for frame in frames]
+        for index, left in enumerate(domains):
+            for right in domains[index + 1 :]:
+                self.assertTrue(left.isdisjoint(right))
+        rates = [float(frame["label"].mean()) for frame in frames]
+        self.assertLess(max(rates) - min(rates), 0.05)
 
     def test_temporal_benchmark_has_no_domain_overlap(self) -> None:
         """

@@ -1,0 +1,11 @@
+{"url":"https://bit.ly/official-event-2026","label":0,"slice":"shortener_benign"}
+{"url":"https://t.co/legitimate-post-2026","label":0,"slice":"shortener_benign"}
+{"url":"https://xn--caf-dma.example/menu","label":0,"slice":"punycode_benign"}
+{"url":"https://docs.example.com/share/report?id=2026&view=public","label":0,"slice":"benign_complex"}
+{"url":"https://surveymonkey.com/r/annual-survey","label":0,"slice":"shared_hosting"}
+{"url":"https://bit.ly/security-verification-required","label":1,"slice":"shortener_phishing"}
+{"url":"https://t.co/fake-microsoft-login","label":1,"slice":"shortener_phishing"}
+{"url":"https://xn--microsft-qbh.example/signin","label":1,"slice":"punycode_phishing"}
+{"url":"https://login.google.verify.example/account/recovery","label":1,"slice":"brand_impersonation"}
+{"url":"https://surveymonkey.com/r/office365-password-reset","label":1,"slice":"shared_hosting"}
+{"url":"https://shop.example.com/%6cogin?redirect=%2Fverify%3Ftoken%3Dabc","label":1,"slice":"encoded_urls"}

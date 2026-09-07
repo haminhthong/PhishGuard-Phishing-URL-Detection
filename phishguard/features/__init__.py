@@ -4,8 +4,10 @@ from .contract import (
     FEATURE_COLUMNS,
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
+    FEATURE_COLUMNS_V3,
     FEATURE_CONTRACT_V1,
     FEATURE_CONTRACT_V2,
+    FEATURE_CONTRACT_V3,
     FEATURE_CONTRACT_VERSION,
 )
 from .extractor import (
@@ -30,8 +32,10 @@ __all__ = [
     "FEATURE_COLUMNS",
     "FEATURE_COLUMNS_V1",
     "FEATURE_COLUMNS_V2",
+    "FEATURE_COLUMNS_V3",
     "FEATURE_CONTRACT_V1",
     "FEATURE_CONTRACT_V2",
+    "FEATURE_CONTRACT_V3",
     "FEATURE_CONTRACT_VERSION",
     "calculate_entropy",
     "detect_brand_abuse",

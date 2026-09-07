@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 import pandas as pd
-from sklearn.model_selection import GroupShuffleSplit
 from tld import get_fld
 
 
@@ -56,6 +55,10 @@ class SplitManifest:
     val_positive_rate: float
     cal_positive_rate: float
     test_positive_rate: float
+    policy_validation_rows: int = 0
+    policy_validation_domains: int = 0
+    policy_positive_rate: float = 0.0
+    strategy: str = "stratified-group-disjoint"
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,17 @@ class FourWayDatasetSplits:
     train: pd.DataFrame
     validation: pd.DataFrame
     calibration: pd.DataFrame
+    test: pd.DataFrame
+
+
+@dataclass(frozen=True)
+class FiveWayDatasetSplits:
+    """Train/Validation/Calibration/Policy Validation/Locked Test."""
+
+    train: pd.DataFrame
+    validation: pd.DataFrame
+    calibration: pd.DataFrame
+    policy_validation: pd.DataFrame
     test: pd.DataFrame
 
 
@@ -193,7 +207,9 @@ def audit_and_clean_data(
     cleaned_df = valid_df.reset_index(drop=True)
 
     legit_hash = compute_sha256(legit_path) if legit_path and Path(legit_path).exists() else None
-    phish_hash = compute_sha256(phishing_path) if phishing_path and Path(phishing_path).exists() else None
+    phish_hash = (
+        compute_sha256(phishing_path) if phishing_path and Path(phishing_path).exists() else None
+    )
 
     report = {
         "legitimate_rows": legit_raw_count,
@@ -254,25 +270,16 @@ def split_by_domain(
     if "domain" not in cleaned.columns:
         cleaned = clean_dataset(cleaned)
 
-    first_split = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
-    train_val_idx, test_idx = next(first_split.split(cleaned, groups=cleaned["domain"]))
-    train_val = cleaned.iloc[train_val_idx].reset_index(drop=True)
-    test = cleaned.iloc[test_idx].reset_index(drop=True)
-
-    relative_validation_size = validation_size / (1 - test_size)
-    second_split = GroupShuffleSplit(
-        n_splits=1,
-        test_size=relative_validation_size,
+    allocations = _stratified_group_allocation(
+        cleaned,
+        {
+            "train": 1.0 - test_size - validation_size,
+            "validation": validation_size,
+            "test": test_size,
+        },
         random_state=random_state,
     )
-    train_idx, validation_idx = next(
-        second_split.split(train_val, groups=train_val["domain"])
-    )
-    splits = DatasetSplits(
-        train=train_val.iloc[train_idx].reset_index(drop=True),
-        validation=train_val.iloc[validation_idx].reset_index(drop=True),
-        test=test,
-    )
+    splits = DatasetSplits(**allocations)
     _assert_disjoint_splits(splits)
     return splits
 
@@ -300,38 +307,143 @@ def split_by_domain_4way(
     if "domain" not in cleaned.columns:
         cleaned = clean_dataset(cleaned)
 
-    # 1. Tách Test set
-    first_split = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
-    remain1_idx, test_idx = next(first_split.split(cleaned, groups=cleaned["domain"]))
-    remain1 = cleaned.iloc[remain1_idx].reset_index(drop=True)
-    test = cleaned.iloc[test_idx].reset_index(drop=True)
-
-    # 2. Tách Calibration set
-    rel_cal_size = calibration_size / (1.0 - test_size)
-    second_split = GroupShuffleSplit(n_splits=1, test_size=rel_cal_size, random_state=random_state)
-    remain2_idx, cal_idx = next(second_split.split(remain1, groups=remain1["domain"]))
-    remain2 = remain1.iloc[remain2_idx].reset_index(drop=True)
-    calibration = remain1.iloc[cal_idx].reset_index(drop=True)
-
-    # 3. Tách Validation set
-    rel_val_size = validation_size / (1.0 - test_size - calibration_size)
-    third_split = GroupShuffleSplit(n_splits=1, test_size=rel_val_size, random_state=random_state)
-    train_idx, val_idx = next(third_split.split(remain2, groups=remain2["domain"]))
-    train = remain2.iloc[train_idx].reset_index(drop=True)
-    validation = remain2.iloc[val_idx].reset_index(drop=True)
-
-    splits = FourWayDatasetSplits(
-        train=train,
-        validation=validation,
-        calibration=calibration,
-        test=test,
+    allocations = _stratified_group_allocation(
+        cleaned,
+        {
+            "train": 1.0 - test_size - calibration_size - validation_size,
+            "validation": validation_size,
+            "calibration": calibration_size,
+            "test": test_size,
+        },
+        random_state=random_state,
     )
+    splits = FourWayDatasetSplits(**allocations)
     _assert_disjoint_splits_4way(splits)
     return splits
 
 
-def create_split_manifest(splits: FourWayDatasetSplits, seed: int = 42) -> SplitManifest:
-    """Tạo SplitManifest định lượng phân bố số dòng, số domain và positive rate trên từng split."""
+def split_by_domain_5way(
+    frame: pd.DataFrame,
+    *,
+    train_size: float = 0.60,
+    validation_size: float = 0.15,
+    calibration_size: float = 0.10,
+    policy_validation_size: float = 0.05,
+    test_size: float = 0.10,
+    random_state: int = 42,
+) -> FiveWayDatasetSplits:
+    """Chia domain-disjoint và gần stratified theo lifecycle 5 tập.
+
+    Mỗi registered domain được gán nguyên vẹn vào đúng một split. Bộ điều phối
+    nhóm tối ưu đồng thời tỷ lệ số dòng và tỷ lệ phishing; không dùng
+    `GroupShuffleSplit` ngẫu nhiên vì nó làm prior giữa các tập lệch mạnh.
+    """
+    sizes = {
+        "train": train_size,
+        "validation": validation_size,
+        "calibration": calibration_size,
+        "policy_validation": policy_validation_size,
+        "test": test_size,
+    }
+    if any(value <= 0 for value in sizes.values()) or abs(sum(sizes.values()) - 1.0) > 1e-9:
+        raise ValueError("Tỷ lệ chia 5-way phải dương và tổng đúng bằng 1.0")
+
+    cleaned = frame.copy()
+    if "domain" not in cleaned.columns:
+        cleaned = clean_dataset(cleaned)
+    allocations = _stratified_group_allocation(cleaned, sizes, random_state=random_state)
+    splits = FiveWayDatasetSplits(**allocations)
+    _assert_disjoint_splits_5way(splits)
+    return splits
+
+
+def _stratified_group_allocation(
+    frame: pd.DataFrame,
+    proportions: dict[str, float],
+    *,
+    random_state: int,
+) -> dict[str, pd.DataFrame]:
+    """Phân bổ group nguyên vẹn, cân bằng row count và positive rate."""
+    if frame.empty:
+        raise ValueError("Không thể chia một dataframe rỗng")
+
+    names = list(proportions)
+    group_stats = (
+        frame.groupby("domain", sort=False)["label"].agg(rows="size", positives="sum").reset_index()
+    )
+    rng = pd.Series(range(len(group_stats))).sample(frac=1.0, random_state=random_state)
+    group_stats["tie_break"] = 0
+    group_stats.loc[rng.index, "tie_break"] = range(len(group_stats))
+    group_stats["positive_rate"] = group_stats["positives"] / group_stats["rows"]
+    # Xen kẽ nhóm thiên positive và nhóm thiên negative. Nếu sắp toàn bộ theo
+    # positive_rate, các split đầu sẽ bị nhồi phishing còn split cuối gần như
+    # toàn legitimate dù hàm mục tiêu có phạt lệch prior.
+    overall_positive_rate = float(frame["label"].mean())
+    positive_groups = group_stats[
+        group_stats["positive_rate"] >= overall_positive_rate
+    ].sort_values(["rows", "tie_break"], ascending=[False, True])
+    negative_groups = group_stats[group_stats["positive_rate"] < overall_positive_rate].sort_values(
+        ["rows", "tie_break"], ascending=[False, True]
+    )
+    ordered_groups = []
+    for index in range(max(len(positive_groups), len(negative_groups))):
+        if index < len(positive_groups):
+            ordered_groups.append(positive_groups.iloc[index])
+        if index < len(negative_groups):
+            ordered_groups.append(negative_groups.iloc[index])
+    group_stats = pd.DataFrame(ordered_groups).reset_index(drop=True)
+
+    total_rows = float(len(frame))
+    total_positives = float(frame["label"].sum())
+    target_rows = {name: total_rows * proportions[name] for name in names}
+    target_positives = {name: total_positives * proportions[name] for name in names}
+    total_negatives = total_rows - total_positives
+    target_negatives = {name: total_negatives * proportions[name] for name in names}
+    current_rows = {name: 0.0 for name in names}
+    current_positives = {name: 0.0 for name in names}
+    group_to_split: dict[str, str] = {}
+
+    for row in group_stats.itertuples(index=False):
+        candidates: list[tuple[float, str]] = []
+        group_negatives = row.rows - row.positives
+        for name in names:
+            new_rows = current_rows[name] + row.rows
+            new_positives = current_positives[name] + row.positives
+            current_negatives = current_rows[name] - current_positives[name]
+            new_negatives = current_negatives + group_negatives
+            positive_need = max(0.0, target_positives[name] - current_positives[name])
+            negative_need = max(0.0, target_negatives[name] - current_negatives)
+            row_need = max(0.0, target_rows[name] - current_rows[name])
+            row_overrun = max(0.0, new_rows - target_rows[name])
+            positive_overrun = max(0.0, new_positives - target_positives[name])
+            negative_overrun = max(0.0, new_negatives - target_negatives[name])
+            score = (
+                row_need * 0.01
+                + row.positives * positive_need
+                + group_negatives * negative_need
+                - 100.0 * (row_overrun + positive_overrun + negative_overrun)
+            )
+            candidates.append((score, name))
+        _, selected = max(candidates, key=lambda item: (item[0], -names.index(item[1])))
+        group_to_split[row.domain] = selected
+        current_rows[selected] += row.rows
+        current_positives[selected] += row.positives
+
+    result: dict[str, pd.DataFrame] = {}
+    for name in names:
+        mask = frame["domain"].map(group_to_split.__getitem__) == name
+        result[name] = frame.loc[mask].reset_index(drop=True)
+    if any(value.empty for value in result.values()):
+        raise ValueError("Không thể tạo split không rỗng với số registered domain hiện tại")
+    return result
+
+
+def create_split_manifest(
+    splits: FourWayDatasetSplits | FiveWayDatasetSplits,
+    seed: int = 42,
+) -> SplitManifest:
+    """Tạo manifest thống nhất cho lifecycle 4-way cũ hoặc 5-way mới."""
+    policy_validation = getattr(splits, "policy_validation", None)
     return SplitManifest(
         seed=seed,
         train_rows=len(splits.train),
@@ -346,6 +458,18 @@ def create_split_manifest(splits: FourWayDatasetSplits, seed: int = 42) -> Split
         val_positive_rate=round(float(splits.validation["label"].mean()), 4),
         cal_positive_rate=round(float(splits.calibration["label"].mean()), 4),
         test_positive_rate=round(float(splits.test["label"].mean()), 4),
+        policy_validation_rows=len(policy_validation) if policy_validation is not None else 0,
+        policy_validation_domains=(
+            policy_validation["domain"].nunique() if policy_validation is not None else 0
+        ),
+        policy_positive_rate=(
+            round(float(policy_validation["label"].mean()), 4)
+            if policy_validation is not None
+            else 0.0
+        ),
+        strategy="stratified-group-disjoint-5way"
+        if policy_validation is not None
+        else "stratified-group-disjoint-4way",
     )
 
 
@@ -357,15 +481,27 @@ def _assert_disjoint_splits(splits: DatasetSplits) -> None:
         "test": set(splits.test["domain"]),
     }
     url_sets = {
-        "train": set(splits.train["raw_url"] if "raw_url" in splits.train.columns else splits.train["url"]),
-        "validation": set(splits.validation["raw_url"] if "raw_url" in splits.validation.columns else splits.validation["url"]),
-        "test": set(splits.test["raw_url"] if "raw_url" in splits.test.columns else splits.test["url"]),
+        "train": set(
+            splits.train["raw_url"] if "raw_url" in splits.train.columns else splits.train["url"]
+        ),
+        "validation": set(
+            splits.validation["raw_url"]
+            if "raw_url" in splits.validation.columns
+            else splits.validation["url"]
+        ),
+        "test": set(
+            splits.test["raw_url"] if "raw_url" in splits.test.columns else splits.test["url"]
+        ),
     }
     for n1 in ["train", "validation"]:
         for n2 in ["validation", "test"]:
             if n1 != n2:
-                assert domain_sets[n1].isdisjoint(domain_sets[n2]), f"Leakage: Domain giao giữa {n1} và {n2}!"
-                assert url_sets[n1].isdisjoint(url_sets[n2]), f"Leakage: URL giao giữa {n1} và {n2}!"
+                assert domain_sets[n1].isdisjoint(domain_sets[n2]), (
+                    f"Leakage: Domain giao giữa {n1} và {n2}!"
+                )
+                assert url_sets[n1].isdisjoint(url_sets[n2]), (
+                    f"Leakage: URL giao giữa {n1} và {n2}!"
+                )
 
 
 def _assert_disjoint_splits_4way(splits: FourWayDatasetSplits) -> None:
@@ -377,18 +513,55 @@ def _assert_disjoint_splits_4way(splits: FourWayDatasetSplits) -> None:
         "test": set(splits.test["domain"]),
     }
     url_sets = {
-        "train": set(splits.train["raw_url"] if "raw_url" in splits.train.columns else splits.train["url"]),
-        "validation": set(splits.validation["raw_url"] if "raw_url" in splits.validation.columns else splits.validation["url"]),
-        "calibration": set(splits.calibration["raw_url"] if "raw_url" in splits.calibration.columns else splits.calibration["url"]),
-        "test": set(splits.test["raw_url"] if "raw_url" in splits.test.columns else splits.test["url"]),
+        "train": set(
+            splits.train["raw_url"] if "raw_url" in splits.train.columns else splits.train["url"]
+        ),
+        "validation": set(
+            splits.validation["raw_url"]
+            if "raw_url" in splits.validation.columns
+            else splits.validation["url"]
+        ),
+        "calibration": set(
+            splits.calibration["raw_url"]
+            if "raw_url" in splits.calibration.columns
+            else splits.calibration["url"]
+        ),
+        "test": set(
+            splits.test["raw_url"] if "raw_url" in splits.test.columns else splits.test["url"]
+        ),
     }
 
     names = list(domain_sets.keys())
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             n1, n2 = names[i], names[j]
-            assert domain_sets[n1].isdisjoint(domain_sets[n2]), f"Leakage: Domain giao giữa {n1} và {n2}!"
+            assert domain_sets[n1].isdisjoint(domain_sets[n2]), (
+                f"Leakage: Domain giao giữa {n1} và {n2}!"
+            )
             assert url_sets[n1].isdisjoint(url_sets[n2]), f"Leakage: URL giao giữa {n1} và {n2}!"
+
+
+def _assert_disjoint_splits_5way(splits: FiveWayDatasetSplits) -> None:
+    """Kiểm tra domain và canonical/raw URL không giao giữa 5 tập."""
+    frames = {
+        "train": splits.train,
+        "validation": splits.validation,
+        "calibration": splits.calibration,
+        "policy_validation": splits.policy_validation,
+        "test": splits.test,
+    }
+    domains = {name: set(df["domain"]) for name, df in frames.items()}
+    urls = {
+        name: set(df["raw_url"] if "raw_url" in df.columns else df["url"])
+        for name, df in frames.items()
+    }
+    names = list(frames)
+    for index, first in enumerate(names):
+        for second in names[index + 1 :]:
+            if not domains[first].isdisjoint(domains[second]):
+                raise AssertionError(f"Leakage: Domain giao giữa {first} và {second}!")
+            if not urls[first].isdisjoint(urls[second]):
+                raise AssertionError(f"Leakage: URL giao giữa {first} và {second}!")
 
 
 def temporal_split_protocol_b(
@@ -406,10 +579,47 @@ def temporal_split_protocol_b(
 
     frame_with_time = frame.copy()
     frame_with_time["_parsed_time"] = pd.to_datetime(frame_with_time[time_col], errors="coerce")
-    valid_time_df = frame_with_time.dropna(subset=["_parsed_time"]).sort_values("_parsed_time").reset_index(drop=True)
+    valid_time_df = (
+        frame_with_time.dropna(subset=["_parsed_time"])
+        .sort_values("_parsed_time")
+        .reset_index(drop=True)
+    )
 
     split_idx = int(len(valid_time_df) * (1.0 - test_ratio))
     train = valid_time_df.iloc[:split_idx].drop(columns=["_parsed_time"]).reset_index(drop=True)
     test = valid_time_df.iloc[split_idx:].drop(columns=["_parsed_time"]).reset_index(drop=True)
 
+    return TemporalSplits(train=train, test=test)
+
+
+def temporal_split_future_unseen_domains(
+    frame: pd.DataFrame,
+    *,
+    test_ratio: float = 0.20,
+    time_col: str = "submission_time",
+) -> TemporalSplits:
+    """Tách future benchmark theo first-seen domain, không để domain overlap.
+
+    Protocol này ưu tiên tính chất unseen-domain hơn tỷ lệ dòng chính xác: các
+    domain có thời điểm xuất hiện đầu tiên muộn nhất được đưa trọn vào future.
+    """
+    if not 0.0 < test_ratio < 1.0:
+        raise ValueError("test_ratio phải nằm trong khoảng (0, 1)")
+    if time_col not in frame.columns:
+        raise ValueError(f"Dữ liệu không chứa cột thời gian {time_col}")
+    working = frame.copy()
+    working["_parsed_time"] = pd.to_datetime(working[time_col], errors="coerce", utc=True)
+    working = working.dropna(subset=["_parsed_time"]).copy()
+    if "domain" not in working.columns:
+        working["domain"] = working["url"].map(registered_domain)
+    first_seen = working.groupby("domain")["_parsed_time"].min().sort_values(kind="stable")
+    test_domain_count = max(1, int(round(len(first_seen) * test_ratio)))
+    future_domains = set(first_seen.tail(test_domain_count).index)
+    test_mask = working["domain"].isin(future_domains)
+    train = working[~test_mask].sort_values("_parsed_time")
+    test = working[test_mask].sort_values("_parsed_time")
+    train = train.drop(columns=["_parsed_time"]).reset_index(drop=True)
+    test = test.drop(columns=["_parsed_time"]).reset_index(drop=True)
+    if set(train["domain"]).intersection(test["domain"]):
+        raise AssertionError("Future benchmark bị overlap registered domain")
     return TemporalSplits(train=train, test=test)

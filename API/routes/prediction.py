@@ -73,6 +73,9 @@ class PredictionResponse(BaseModel):
     label: int
     prediction: str
     model_score: float
+    phishing_risk_score: float
+    action: str
+    policy_version: str
     risk_level: str
     model_version: str
     feature_contract: str

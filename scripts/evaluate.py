@@ -12,14 +12,15 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier
 
-from phishguard.calibration import ProbabilityCalibrator, RiskPolicyConfig
+from phishguard.calibration import ActionPolicy, ProbabilityCalibrator
 from phishguard.features import (
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
+    FEATURE_COLUMNS_V3,
     FEATURE_CONTRACT_V2,
     extract_features,
 )
-from phishguard.training.evaluation import classification_metrics, compute_ece
+from phishguard.training.evaluation import classification_metrics
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -49,7 +50,7 @@ def load_split(name: str) -> pd.DataFrame:
 def measure_detailed_latencies(
     model: XGBClassifier,
     calibrator: ProbabilityCalibrator,
-    risk_policy: RiskPolicyConfig,
+    action_policy: ActionPolicy,
     sample_urls: list[str],
     contract: str,
     feature_cols: tuple[str, ...],
@@ -77,7 +78,7 @@ def measure_detailed_latencies(
 
             # 3. Risk policy
             t_pol_start = time.perf_counter()
-            _, _ = risk_policy.evaluate(cal_prob)
+            _, _ = action_policy.evaluate(cal_prob)
             t_pol_end = time.perf_counter()
 
             t1 = time.perf_counter()
@@ -110,9 +111,19 @@ def evaluate_hard_slices(
     y_preds = (y_scores >= operating_threshold).astype(int)
 
     shared_domains = {
-        "google.com", "dropbox.com", "live.com", "office.com", "wix.com",
-        "wordpress.com", "t.co", "telegram.org", "github.io", "pages.dev",
-        "firebaseapp.com", "web.app", "amazonaws.com",
+        "google.com",
+        "dropbox.com",
+        "live.com",
+        "office.com",
+        "wix.com",
+        "wordpress.com",
+        "t.co",
+        "telegram.org",
+        "github.io",
+        "pages.dev",
+        "firebaseapp.com",
+        "web.app",
+        "amazonaws.com",
     }
 
     slices = {
@@ -120,23 +131,21 @@ def evaluate_hard_slices(
             (features_df["brand_in_subdomain"] == 1)
             | (features_df["brand_in_path"] == 1)
             | (features_df["brand_not_registered_domain"] == 1)
-        ).values if "brand_in_subdomain" in features_df.columns else np.zeros(len(test_df), dtype=bool),
-
-        "shared_hosting_cloud": (
-            test_df["domain"].isin(shared_domains)
-        ).values if "domain" in test_df.columns else np.zeros(len(test_df), dtype=bool),
-
-        "url_shortener": (
-            features_df["uses_shortening_service"] == 1
-        ).values if "uses_shortening_service" in features_df.columns else np.zeros(len(test_df), dtype=bool),
-
-        "punycode": (
-            features_df["has_punycode"] == 1
-        ).values if "has_punycode" in features_df.columns else np.zeros(len(test_df), dtype=bool),
-
-        "long_url": (
-            features_df["url_length"] > 75
-        ).values if "url_length" in features_df.columns else np.zeros(len(test_df), dtype=bool),
+        ).values
+        if "brand_in_subdomain" in features_df.columns
+        else np.zeros(len(test_df), dtype=bool),
+        "shared_hosting_cloud": (test_df["domain"].isin(shared_domains)).values
+        if "domain" in test_df.columns
+        else np.zeros(len(test_df), dtype=bool),
+        "url_shortener": (features_df["uses_shortening_service"] == 1).values
+        if "uses_shortening_service" in features_df.columns
+        else np.zeros(len(test_df), dtype=bool),
+        "punycode": (features_df["has_punycode"] == 1).values
+        if "has_punycode" in features_df.columns
+        else np.zeros(len(test_df), dtype=bool),
+        "long_url": (features_df["url_length"] > 75).values
+        if "url_length" in features_df.columns
+        else np.zeros(len(test_df), dtype=bool),
     }
 
     slice_reports = {}
@@ -162,7 +171,9 @@ def evaluate_hard_slices(
             "precision": round(metrics.get("precision", 0.0), 4),
             "false_positive_rate": round(metrics.get("false_positive_rate", 0.0), 4),
             "f1": round(metrics.get("f1", 0.0), 4),
-            "pr_auc": round(metrics.get("pr_auc", 0.0), 4) if pos_count > 0 and neg_count > 0 else None,
+            "pr_auc": round(metrics.get("pr_auc", 0.0), 4)
+            if pos_count > 0 and neg_count > 0
+            else None,
         }
 
     return slice_reports
@@ -183,7 +194,14 @@ def analyze_errors(
 
     url_col = "raw_url" if "raw_url" in error_df.columns else "url"
 
-    for col in ["url_length", "subdomain_count", "brand_not_registered_domain", "has_ip_address", "has_punycode", "is_suspicious_tld"]:
+    for col in [
+        "url_length",
+        "subdomain_count",
+        "brand_not_registered_domain",
+        "has_ip_address",
+        "has_punycode",
+        "is_suspicious_tld",
+    ]:
         if col in features_df.columns:
             error_df[col] = features_df[col].values
 
@@ -194,7 +212,9 @@ def analyze_errors(
         "total_false_positives": len(fps),
         "by_url_length": {
             "short_under_35_chars": int((fps[url_col].str.len() < 35).sum()),
-            "medium_35_to_75_chars": int(((fps[url_col].str.len() >= 35) & (fps[url_col].str.len() <= 75)).sum()),
+            "medium_35_to_75_chars": int(
+                ((fps[url_col].str.len() >= 35) & (fps[url_col].str.len() <= 75)).sum()
+            ),
             "long_over_75_chars": int((fps[url_col].str.len() > 75).sum()),
         },
         "sample_false_positives": fps[[url_col, "y_score"]].head(10).to_dict(orient="records"),
@@ -204,7 +224,9 @@ def analyze_errors(
         "total_false_negatives": len(fns),
         "by_url_length": {
             "short_under_35_chars": int((fns[url_col].str.len() < 35).sum()),
-            "medium_35_to_75_chars": int(((fns[url_col].str.len() >= 35) & (fns[url_col].str.len() <= 75)).sum()),
+            "medium_35_to_75_chars": int(
+                ((fns[url_col].str.len() >= 35) & (fns[url_col].str.len() <= 75)).sum()
+            ),
             "long_over_75_chars": int((fns[url_col].str.len() > 75).sum()),
         },
         "sample_false_negatives": fns[[url_col, "y_score"]].head(10).to_dict(orient="records"),
@@ -239,7 +261,9 @@ def main() -> None:
         model_json_path = model_dir / "XGB.json"
 
     if not model_json_path.exists():
-        raise FileNotFoundError(f"Không tìm thấy file mô hình tại {model_json_path}. Vui lòng chạy scripts/train.py trước.")
+        raise FileNotFoundError(
+            f"Không tìm thấy file mô hình tại {model_json_path}. Vui lòng chạy scripts/train.py trước."
+        )
 
     # 2. Nạp Model và Metadata
     model = XGBClassifier()
@@ -253,34 +277,42 @@ def main() -> None:
         with open(meta_path, encoding="utf-8") as f:
             metadata = json.load(f)
 
-    operating_threshold = float(metadata.get("threshold", 0.5))
+    policy_path = model_dir / "action_policy.json"
+    if not policy_path.exists():
+        raise FileNotFoundError(f"Thiếu action_policy.json trong release: {model_dir}")
+    with policy_path.open(encoding="utf-8") as f:
+        action_policy = ActionPolicy.from_dict(json.load(f))
+    operating_threshold = action_policy.block_threshold
     feature_contract = metadata.get("feature_contract", FEATURE_CONTRACT_V2)
-    feature_cols = FEATURE_COLUMNS_V2 if feature_contract == FEATURE_CONTRACT_V2 else FEATURE_COLUMNS_V1
+    feature_cols = {
+        "lexical-v1": FEATURE_COLUMNS_V1,
+        FEATURE_CONTRACT_V2: FEATURE_COLUMNS_V2,
+        "lexical-v3": FEATURE_COLUMNS_V3,
+    }[feature_contract]
 
-    # Nạp calibrator nếu có
-    calibrator = ProbabilityCalibrator(method="none")
+    # Calibration là artifact bắt buộc; không chạy raw score khi thiếu file.
+    calibrator = None
     calib_path = model_dir / "calibration.json"
-    if calib_path.exists():
-        with open(calib_path, encoding="utf-8") as f:
-            calib_data = json.load(f)
-            calibrator = ProbabilityCalibrator(
-                method=calib_data.get("method", "isotonic"),
-                params=calib_data.get("calibrator_params", {}),
-            )
-
-    risk_policy = RiskPolicyConfig(
-        high_threshold=metadata.get("risk_thresholds", {}).get("high", 0.75),
-        medium_threshold=metadata.get("risk_thresholds", {}).get("medium", 0.45),
+    if not calib_path.exists():
+        raise FileNotFoundError(f"Thiếu calibration.json trong release: {model_dir}")
+    with calib_path.open(encoding="utf-8") as f:
+        calib_data = json.load(f)
+    calibrator = ProbabilityCalibrator(
+        method=calib_data["method"],
+        params=calib_data["calibrator_params"],
     )
 
     print(f" Loaded Operating Threshold: {operating_threshold}")
     print(f" Loaded Feature Contract:    {feature_contract} ({len(feature_cols)} features)")
+    print(f" Loaded Action Policy:       {action_policy.to_dict()}")
     print(f" Loaded Calibrator:          {calibrator.method} (is_fitted={calibrator.is_fitted})")
 
     # 3. Tải tập Test
     test_df = load_split("test")
     url_col = "raw_url" if "raw_url" in test_df.columns else "url"
-    print(f" Test dataset size: {len(test_df):,} rows ({test_df['domain'].nunique():,} unique domains)")
+    print(
+        f" Test dataset size: {len(test_df):,} rows ({test_df['domain'].nunique():,} unique domains)"
+    )
 
     # 4. Trích xuất đặc trưng cho tập Test
     print(f" Extracting {len(feature_cols)} features ({feature_contract}) from {url_col}...")
@@ -295,13 +327,21 @@ def main() -> None:
     y_preds = (calibrated_scores >= operating_threshold).astype(int)
 
     metrics = classification_metrics(y_test, y_preds, calibrated_scores)
+    policy_metrics = {
+        "caution": classification_metrics(
+            y_test,
+            (calibrated_scores >= action_policy.caution_threshold).astype(int),
+            calibrated_scores,
+        ),
+        "block": metrics,
+    }
 
     # 6. Đo tách bạch độ trễ (Latency Breakdown)
     print(" Measuring fine-grained latency breakdown (Feature extraction, Model, Policy, E2E)...")
     lat_breakdown = measure_detailed_latencies(
         model=model,
         calibrator=calibrator,
-        risk_policy=risk_policy,
+        action_policy=action_policy,
         sample_urls=test_df[url_col].tolist(),
         contract=feature_contract,
         feature_cols=feature_cols,
@@ -332,6 +372,8 @@ def main() -> None:
         "feature_contract": feature_contract,
         "operating_threshold": operating_threshold,
         "metrics": metrics,
+        "policy_metrics": policy_metrics,
+        "action_policy": action_policy.to_dict(),
         "hard_slices": slice_evaluation,
         "latency_breakdown": lat_breakdown,
     }
@@ -354,14 +396,22 @@ def main() -> None:
     print(f" • ROC-AUC:                    {metrics['roc_auc']:.4f}")
     print(f" • Recall:                     {metrics['recall'] * 100:.2f}%")
     print(f" • Precision:                  {metrics['precision'] * 100:.2f}%")
-    print(f" • False Positive Rate:        {metrics['false_positive_rate'] * 100:.2f}% ({metrics['false_positives']:,} FPs)")
-    print(f" • False Negative Rate:        {metrics['false_negative_rate'] * 100:.2f}% ({metrics['false_negatives']:,} FNs)")
+    print(
+        f" • False Positive Rate:        {metrics['false_positive_rate'] * 100:.2f}% ({metrics['false_positives']:,} FPs)"
+    )
+    print(
+        f" • False Negative Rate:        {metrics['false_negative_rate'] * 100:.2f}% ({metrics['false_negatives']:,} FNs)"
+    )
     print(f" • F1 Score:                   {metrics['f1']:.4f}")
     print(f" • Brier Score:                {metrics['brier_score']:.4f}")
     print(f" • ECE (Calibration):          {metrics['expected_calibration_error']:.4f}")
     print(f" • Accuracy:                   {metrics['accuracy'] * 100:.2f}%")
-    print(f" • Model Inference Latency:    p50={lat_breakdown['model_inference_p50_ms']} ms | p95={lat_breakdown['model_inference_p95_ms']} ms")
-    print(f" • Full End-to-End Latency:    p50={lat_breakdown['total_e2e_p50_ms']} ms | p95={lat_breakdown['total_e2e_p95_ms']} ms")
+    print(
+        f" • Model Inference Latency:    p50={lat_breakdown['model_inference_p50_ms']} ms | p95={lat_breakdown['model_inference_p95_ms']} ms"
+    )
+    print(
+        f" • Full End-to-End Latency:    p50={lat_breakdown['total_e2e_p50_ms']} ms | p95={lat_breakdown['total_e2e_p95_ms']} ms"
+    )
     print("=" * 70)
     print(f" [OK] Báo cáo đánh giá đã lưu: {TEST_REPORT_JSON}")
     print(f" [OK] Phân tích lỗi đã lưu:     {ERROR_ANALYSIS_JSON}")

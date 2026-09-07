@@ -24,7 +24,7 @@ FEATURE_FIXTURE_PATH = FIXTURES_DIR / "feature_contract.json"
 
 class FeatureExtractionTests(unittest.TestCase):
     def test_feature_count_and_order_contract(self) -> None:
-        """Đảm bảo hàm trả về đủ 25 đặc trưng đúng thứ tự cột của hợp đồng chuẩn lexical-v2."""
+        """Đảm bảo hàm trả về đủ 25 đặc trưng đúng thứ tự cột của hợp đồng lexical-v3."""
         features = extract_features("https://example.com/account/login?id=123")
         self.assertEqual(tuple(features), FEATURE_COLUMNS)
         self.assertEqual(len(features), 25)

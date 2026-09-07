@@ -1,4 +1,9 @@
-"""Hợp đồng đầu vào giữa pipeline huấn luyện và dịch vụ dự đoán PhishGuard ML."""
+"""Hợp đồng đặc trưng dùng chung giữa training và serving.
+
+`lexical-v3` giữ nguyên 25 cột của v2 để không làm thay đổi semantics mô hình,
+nhưng đóng băng thêm phiên bản của các tài nguyên bên ngoài. Vì vậy việc nâng
+version không tự ý tạo thêm feature hoặc làm thay đổi thứ tự cột.
+"""
 
 from __future__ import annotations
 
@@ -53,6 +58,12 @@ FEATURE_COLUMNS_V2: tuple[str, ...] = (
     "has_redirection_pattern",
 )
 
-# Active canonical contract for production (lexical-v2: 25 features)
-FEATURE_CONTRACT_VERSION = FEATURE_CONTRACT_V2
-FEATURE_COLUMNS = FEATURE_COLUMNS_V2
+# V3 đóng băng semantics 25 feature của v2 và bổ sung resource contract.
+# Không sao chép tuple để tránh hai danh sách cột bị lệch theo thời gian.
+FEATURE_CONTRACT_V3 = "lexical-v3"
+FEATURE_COLUMNS_V3: tuple[str, ...] = FEATURE_COLUMNS_V2
+
+# Hợp đồng mặc định mới cho pipeline huấn luyện. Artifact lexical-v2 cũ vẫn
+# được loader hỗ trợ để có thể rollback an toàn.
+FEATURE_CONTRACT_VERSION = FEATURE_CONTRACT_V3
+FEATURE_COLUMNS = FEATURE_COLUMNS_V3

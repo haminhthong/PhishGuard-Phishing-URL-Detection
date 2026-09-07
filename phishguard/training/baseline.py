@@ -1,4 +1,4 @@
-"""Các mô hình baseline để so sánh benchmark với Random Forest và XGBoost."""
+"""Các baseline sanity và Logistic Regression của PhishGuard."""
 
 from __future__ import annotations
 

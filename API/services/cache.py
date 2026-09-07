@@ -17,7 +17,9 @@ class PredictionCache:
         self.misses = 0
 
     @staticmethod
-    def hash_key(url: str, model_version: str = "default", feature_contract: str = "default") -> str:
+    def hash_key(
+        url: str, model_version: str = "default", feature_contract: str = "default"
+    ) -> str:
         """
         Băm SHA-256 kết hợp model_version + feature_contract + URL.
         Bảo đảm khi mô hình được nâng cấp, các bản ghi cũ sẽ không gây sai lệch verdict.
@@ -25,7 +27,9 @@ class PredictionCache:
         raw_key = f"{model_version}:{feature_contract}:{url}"
         return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
-    def get(self, url: str, model_version: str = "default", feature_contract: str = "default") -> Any | None:
+    def get(
+        self, url: str, model_version: str = "default", feature_contract: str = "default"
+    ) -> Any | None:
         key = self.hash_key(url, model_version, feature_contract)
         with self._lock:
             if key in self._cache:
@@ -35,7 +39,13 @@ class PredictionCache:
             self.misses += 1
             return None
 
-    def put(self, url: str, value: Any, model_version: str = "default", feature_contract: str = "default") -> None:
+    def put(
+        self,
+        url: str,
+        value: Any,
+        model_version: str = "default",
+        feature_contract: str = "default",
+    ) -> None:
         key = self.hash_key(url, model_version, feature_contract)
         with self._lock:
             self._cache[key] = value

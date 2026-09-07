@@ -27,7 +27,7 @@ def run_split() -> None:
     """Thực thi chia tập theo Registered Domain (Zero Leakage)."""
     from scripts.prepare_splits import main as split_main
     print("\n" + "=" * 70)
-    print(" [STAGE 2/5] DOMAIN-GROUPED 4-WAY SPLIT")
+    print(" [STAGE 2/5] STRATIFIED DOMAIN-GROUPED 5-WAY SPLIT")
     print("=" * 70)
     split_main()
 
@@ -36,7 +36,7 @@ def run_train() -> None:
     """Thực thi huấn luyện, so sánh benchmark, refit champion và hiệu chuẩn xác suất."""
     from scripts.train import main as train_main
     print("\n" + "=" * 70)
-    print(" [STAGE 3/5] MODEL SELECTION, REFIT & CALIBRATION")
+    print(" [STAGE 3/5] MODEL SELECTION, CALIBRATION & ACTION POLICY")
     print("=" * 70)
     train_main()
 
@@ -85,8 +85,8 @@ def main() -> None:
             "Lựa chọn giai đoạn thực thi:\n"
             "  run      - Chạy toàn bộ lifecycle (audit -> split -> train -> evaluate)\n"
             "  audit    - Kiểm toán dữ liệu nguồn và xuất DatasetManifest\n"
-            "  split    - Chia 4 tập theo domain và xuất SplitManifest\n"
-            "  train    - Train baselines, select, refit champion và calibrate\n"
+            "  split    - Chia 5 tập domain-disjoint có stratification\n"
+            "  train    - Train LogReg/XGBoost, calibrate và chọn ActionPolicy\n"
             "  evaluate - Đánh giá tập Test và Hard Slices (Report Only)\n"
             "  package  - Đóng gói artifact và kiểm tra Quality Gate\n"
         ),

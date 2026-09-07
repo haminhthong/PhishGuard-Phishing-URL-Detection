@@ -11,7 +11,6 @@ from API.dependencies import get_cache, get_loaded_model
 from API.services.cache import PredictionCache
 from API.services.model_loader import LoadedModel
 from phishguard import __version__
-from phishguard.features import FEATURE_COLUMNS, FEATURE_CONTRACT_VERSION
 
 router = APIRouter(tags=["Hệ thống"])
 START_TIME = time.monotonic()
@@ -31,14 +30,16 @@ def liveness_probe() -> dict[str, str]:
 def readiness_probe(
     loaded_model: LoadedModel = Depends(get_loaded_model),
 ) -> dict[str, Any]:
-    if loaded_model.model is None or not (0.0 <= loaded_model.threshold <= 1.0):
-        return {"status": "not_ready", "reason": "Model or threshold invalid"}
     return {
         "status": "ready",
         "model_version": loaded_model.model_version,
         "feature_contract": loaded_model.feature_contract,
         "feature_count": loaded_model.feature_count,
         "threshold": loaded_model.threshold,
+        "policy_version": loaded_model.policy_version,
+        "caution_threshold": loaded_model.action_policy.caution_threshold,
+        "block_threshold": loaded_model.action_policy.block_threshold,
+        "calibration_loaded": loaded_model.calibrator.is_fitted,
     }
 
 
@@ -53,6 +54,9 @@ def health_check(
         "feature_count": loaded_model.feature_count,
         "feature_contract": loaded_model.feature_contract,
         "threshold": loaded_model.threshold,
+        "policy_version": loaded_model.policy_version,
+        "caution_threshold": loaded_model.action_policy.caution_threshold,
+        "block_threshold": loaded_model.action_policy.block_threshold,
         "cache_entries": cache.stats()["used"],
     }
 
@@ -61,13 +65,19 @@ def health_check(
 def model_info(
     loaded_model: LoadedModel = Depends(get_loaded_model),
 ) -> dict[str, Any]:
-    from phishguard.features import FEATURE_COLUMNS_V1, FEATURE_COLUMNS_V2, FEATURE_CONTRACT_V2
-
-    cols = (
-        FEATURE_COLUMNS_V2
-        if loaded_model.feature_contract == FEATURE_CONTRACT_V2
-        else FEATURE_COLUMNS_V1
+    from phishguard.features import (
+        FEATURE_COLUMNS_V1,
+        FEATURE_COLUMNS_V2,
+        FEATURE_COLUMNS_V3,
+        FEATURE_CONTRACT_V2,
+        FEATURE_CONTRACT_V3,
     )
+
+    cols = {
+        "lexical-v1": FEATURE_COLUMNS_V1,
+        FEATURE_CONTRACT_V2: FEATURE_COLUMNS_V2,
+        FEATURE_CONTRACT_V3: FEATURE_COLUMNS_V3,
+    }[loaded_model.feature_contract]
     return {
         "model_type": loaded_model.metadata.get("model_type", type(loaded_model.model).__name__),
         "model_version": loaded_model.model_version,
@@ -75,6 +85,8 @@ def model_info(
         "features": list(cols),
         "feature_contract": loaded_model.feature_contract,
         "threshold": loaded_model.threshold,
+        "policy_version": loaded_model.policy_version,
+        "action_policy": loaded_model.action_policy.to_dict(),
         "training_date": loaded_model.metadata.get("training_date"),
         "test_metrics": loaded_model.metadata.get("test_metrics", {}),
     }

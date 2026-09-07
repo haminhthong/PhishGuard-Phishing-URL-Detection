@@ -50,6 +50,14 @@ coverage.xml
 .pytest_cache/
 .ruff_cache/
 
+# Dữ liệu raw và split sinh ra là input cục bộ, không commit vào release.
+Data/*.csv
+artifacts/splits/
+
+# Dữ liệu raw và split sinh ra là input cục bộ, không commit vào release.
+Data/*.csv
+artifacts/splits/
+
 # IDE files
 .vscode/
 .idea/

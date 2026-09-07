@@ -1,0 +1,11 @@
+{"url":"https://bit.ly/official-event","label":0,"slice":"shortener_benign"}
+{"url":"https://t.co/legitimate-post","label":0,"slice":"shortener_benign"}
+{"url":"https://xn--bcher-kva.example/reading","label":0,"slice":"punycode_benign"}
+{"url":"https://shop.example.com/account/login?campaign=spring-sale&utm_source=newsletter","label":0,"slice":"benign_complex"}
+{"url":"https://surveymonkey.com/r/customer-feedback","label":0,"slice":"shared_hosting"}
+{"url":"https://bit.ly/fake-login","label":1,"slice":"shortener_phishing"}
+{"url":"https://t.co/verify-paypal-session","label":1,"slice":"shortener_phishing"}
+{"url":"https://xn--paypa1-7ve.example/login","label":1,"slice":"punycode_phishing"}
+{"url":"https://paypal.account-check.example/login?session=expired","label":1,"slice":"brand_impersonation"}
+{"url":"https://surveymonkey.com/r/confirm-account-security","label":1,"slice":"shared_hosting"}
+{"url":"https://example.com/login//redirect?next=https%3A%2F%2Fbank.example","label":1,"slice":"encoded_urls"}

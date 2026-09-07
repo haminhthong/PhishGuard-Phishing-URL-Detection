@@ -111,10 +111,11 @@ document.addEventListener("DOMContentLoaded", async () => {
             return;
         }
         history.forEach(item => {
-            const isPhish = item.label === 1;
-            const score = item.model_score !== undefined ? item.model_score : (item.confidence || 0);
-            const badgeClass = isPhish ? "badge-phish" : "badge-safe";
-            const badgeText = isPhish ? `Lừa đảo (Điểm: ${Math.round(score * 100)}%)` : "An toàn";
+            const action = String(item.action || "allow").toLowerCase();
+            const scoreBucket = Number.isFinite(Number(item.score_bucket)) ? Number(item.score_bucket) * 10 : null;
+            const badgeClass = action === "block" ? "badge-phish" : action === "caution" ? "badge-warn" : "badge-safe";
+            const scoreText = scoreBucket === null ? "" : ` (${scoreBucket}%)`;
+            const badgeText = `${action.toUpperCase()}${scoreText}`;
 
             const historyItem = document.createElement("div");
             historyItem.className = "history-item";

@@ -1,20 +1,20 @@
-# Model Card — PhishGuard ML XGBoost Risk Classifier v3.1.0
+# Model Card — PhishGuard ML XGBoost URL Risk Classifier v4
 
 ## 1. Tổng Quan Mô Hình
 
-Mô hình phân loại rủi ro URL độc hại (Phishing URL Risk Detector) sử dụng thuật toán **XGBoost Classifier** với hợp đồng 25 đặc trưng cấu trúc `lexical-v2` được chia làm 4 nhóm logic. Mô hình được xuất dưới định dạng **Native XGBoost JSON** (`API/XGB.json`) đi kèm file metadata (`API/model_metadata.json`) có chữ ký băm SHA-256 để chống can thiệp trái phép.
+PhishGuard là **URL-only phishing risk detector**, sử dụng **XGBoost Classifier** với hợp đồng 25 đặc trưng `lexical-v3`. V3 giữ nguyên semantics của v2 nhưng khóa version và checksum của resource lexical/PSL. Release bundle gồm model, calibrator, ActionPolicy và resource contract; API fail-closed nếu một thành phần thiếu hoặc lệch checksum.
 
 - **Tên mô hình:** PhishGuard ML Lexical Risk Classifier
-- **Phiên bản:** `3.1.0` (Hỗ trợ tương thích ngược với mô hình `3.0.0`)
-- **Hợp đồng đặc trưng:** `lexical-v2` (25 đặc trưng phân nhóm)
+- **Phiên bản:** `4.0.0`
+- **Hợp đồng đặc trưng:** `lexical-v3` (25 đặc trưng phân nhóm)
 - **Định dạng đóng gói:** Native XGBoost JSON (Không sử dụng Python Pickle runtime)
 - **Mục tiêu tối ưu:** Tối đa hóa PR-AUC với ràng buộc nghiêm ngặt về False Positive Rate ($\le 0.5\%$) và độ trễ $p95 \le 5.0\text{ ms}$.
 
 ---
 
-## 2. Hợp Đồng Đặc Trưng (Feature Contract v2)
+## 2. Hợp Đồng Đặc Trưng (Feature Contract v3)
 
-Hệ thống nâng cấp từ 12 đặc trưng phẳng của `lexical-v1` lên **25 đặc trưng** của `lexical-v2` phân thành 4 nhóm bảo mật chuyên sâu:
+Hệ thống nâng cấp từ 12 đặc trưng phẳng của `lexical-v1` lên **25 đặc trưng** của `lexical-v3` phân thành 4 nhóm bảo mật chuyên sâu. V3 giữ nguyên semantics của v2 để tương thích artifact cũ, đồng thời khóa checksum resource và phiên bản thư viện PSL/TLD.
 
 | Nhóm | Danh sách Đặc trưng | Ý nghĩa Bảo mật |
 | :--- | :--- | :--- |
@@ -34,7 +34,7 @@ Hệ thống nâng cấp từ 12 đặc trưng phẳng của `lexical-v1` lên *
   - Loại bỏ các registered domain mâu thuẫn nhãn xuất hiện ở cả hai tập nguồn.
   - Tổng số bản ghi sạch: 369.115 URLs (111.801 registered domains độc lập).
 - **Quy tắc chia tập (Domain-Disjoint Split):**
-  - **Protocol A (Domain Generalization):** Phân nhóm theo Registered Domain (Mozilla Public Suffix List). Đảm bảo 100% zero overlap cả về domain và URL giữa Train (65%), Validation (15%), Calibration (10%) và Test (10%).
+  - **Protocol A (Domain Generalization):** Phân nhóm theo Registered Domain (Mozilla Public Suffix List). Đảm bảo 100% zero overlap cả về domain và URL giữa Train (60%), Validation (15%), Calibration (10%), Policy Validation (5%) và Locked Test (10%).
   - **Protocol B (Temporal Robustness):** Huấn luyện trên các chiến dịch lừa đảo trong quá khứ và kiểm thử trên các chiến dịch tương lai (dựa trên `submission_time`) để lượng hóa mức độ suy giảm (concept drift).
 
 ---
@@ -49,22 +49,22 @@ Bảng so sánh trên tập Validation (đánh giá độc lập trên các regi
 | **Dummy Stratified** | 0.0875 | 9.05% | 8.10% | 9.92% | 0.124 | 0.08 ms |
 | **Rule-based Baseline** | 0.2315 | 1.84% | 81.20% | 0.02% | 0.312 | 0.18 ms |
 | **Logistic Regression** | 0.8658 | 77.65% | 94.79% | 0.41% | 0.062 | 0.14 ms |
-| **Random Forest** | 0.9381 | 86.82% | 97.64% | 0.19% | 0.038 | 8.11 ms |
 | **XGBoost (Được Chọn)** | **0.9388** | **88.94%** | **95.82%** | **0.36%** | **0.024** | **0.92 ms** |
 
 > [!NOTE]
-> **Cơ sở lựa chọn mô hình tự động:** Random Forest và XGBoost đạt PR-AUC rất sát nhau (0.9381 vs 0.9388). XGBoost được hệ thống lựa chọn tự động nhờ vượt trội về độ trễ suy luận (0.92 ms vs 8.11 ms) và khả năng xuất mô hình an toàn dưới định dạng Native JSON độc lập với runtime pickle.
+> **Cơ sở lựa chọn:** Rule-based là sanity baseline, Logistic Regression là baseline ML và XGBoost là canonical production candidate. Kiến trúc được chọn bằng PR-AUC/latency; Recall/FPR được đánh giá sau calibration và ActionPolicy.
 
 ---
 
 ## 5. Tối Ưu Hóa Ngưỡng Vận Hành (Constrained Threshold Selection)
 
-Thay vì chọn ngưỡng đơn thuần bằng $\max F_1$, PhishGuard ML áp dụng quy trình quét threshold có ràng buộc chi phí an ninh thông tin:
+PhishGuard không chọn một binary operating threshold để điều khiển browser. Calibration chỉ fit calibrator trên tập Calibration; Policy Validation độc lập chọn hai ngưỡng:
 
 - **Chi phí bất đối xứng (Asymmetric Cost Model):** Giả định kịch bản chi phí $C_{FN} = 10$ (phishing lọt qua gây mất tài khoản) và $C_{FP} = 1$ (cảnh báo nhầm website hợp lệ).
 - **Ràng buộc tối ưu (Constrained Optimization):**
   $$\max \text{Recall} \quad \text{s.t.} \quad \text{FPR} \le 0.5\%$$
-- **Ngưỡng vận hành được chọn:** `threshold = 0.57` (Bảo đảm tỷ lệ cảnh báo nhầm FPR luôn dưới $0.5\%$).
+- **Caution:** mục tiêu nhạy hơn, giới hạn FPR riêng.
+- **Block:** giới hạn FPR nghiêm ngặt hơn vì gây gián đoạn navigation.
 
 ---
 
@@ -74,9 +74,9 @@ Hệ thống tách bạch điểm số mô hình (`model_score`) khỏi chính s
 
 | Điểm Số Mô Hình (`model_score`) | Mức Độ Rủi Ro (`risk_level`) | Hành Động Hệ Thống (`risk_action`) | Hành Vi Trình Duyệt |
 | :--- | :---: | :---: | :--- |
-| **$0.00 \le \text{score} < 0.45$** | **LOW** | `allow` | Không gián đoạn; hiển thị Toolbar Badge `SAFE` (xanh lục). |
-| **$0.45 \le \text{score} < 0.75$** | **MEDIUM** | `caution` | Cảnh báo mềm; hiển thị Toolbar Badge `WARN` (vàng cam), không chặn trang. |
-| **$\text{score} \ge 0.75$** | **HIGH** | `warn` | Chặn tải trang ngay lập tức; điều hướng sang `warning.html` (đỏ). |
+| **$0.00 \le \text{score} < caution_threshold$** | **LOW** | `allow` | Hiển thị `ALLOW`; không đồng nghĩa website an toàn. |
+| **$caution_threshold \le \text{score} < block_threshold$** | **MEDIUM** | `caution` | Cảnh báo mềm; không chặn trang. |
+| **$\text{score} \ge block_threshold$** | **HIGH** | `block` | Chặn tải trang; điều hướng sang `warning.html`. |
 
 ---
 

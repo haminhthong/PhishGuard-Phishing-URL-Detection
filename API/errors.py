@@ -49,16 +49,24 @@ def build_error_response(code: str, message: str, status_code: int) -> JSONRespo
     )
 
 
-async def phishguard_exception_handler(_request: Request, exc: PhishGuardAPIException) -> JSONResponse:
+async def phishguard_exception_handler(
+    _request: Request, exc: PhishGuardAPIException
+) -> JSONResponse:
     return build_error_response(exc.code, exc.message, exc.status_code)
 
 
-async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+async def validation_exception_handler(
+    _request: Request, exc: RequestValidationError
+) -> JSONResponse:
     # Lấy thông báo lỗi đầu tiên ngắn gọn
     errors = exc.errors()
-    first_msg = errors[0].get("msg", "Dữ liệu yêu cầu không hợp lệ") if errors else "Yêu cầu không hợp lệ"
+    first_msg = (
+        errors[0].get("msg", "Dữ liệu yêu cầu không hợp lệ") if errors else "Yêu cầu không hợp lệ"
+    )
     return build_error_response("INVALID_URL", first_msg, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
 
 async def generic_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
-    return build_error_response("PREDICTION_FAILED", f"Lỗi xử lý nội bộ: {exc!s}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return build_error_response(
+        "PREDICTION_FAILED", f"Lỗi xử lý nội bộ: {exc!s}", status.HTTP_500_INTERNAL_SERVER_ERROR
+    )

@@ -7,6 +7,8 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import confusion_matrix
 
+from .policy import ActionPolicy
+
 
 def sweep_operating_threshold(
     y_true: Any,
@@ -91,4 +93,70 @@ def sweep_operating_threshold(
         "constrained_recall": round(best_constrained_recall, 4),
         "cost_assumptions": {"cost_fn": cost_fn, "cost_fp": cost_fp},
         "sweep_table": sweep_records,
+    }
+
+
+def select_action_policy(
+    y_true: Any,
+    calibrated_scores: Any,
+    *,
+    caution_max_fpr: float = 0.02,
+    block_max_fpr: float = 0.005,
+    policy_version: str = "browser-risk-v1",
+) -> dict[str, Any]:
+    """Chọn hai ngưỡng trên Policy Validation độc lập với Calibration.
+
+    Caution được phép nhạy hơn vì chỉ hiển thị cảnh báo mềm. Block phải giữ FPR
+    thấp hơn để hạn chế chặn nhầm. Không dùng cost giả định để quyết định hành
+    động production; cost chỉ là thông tin nhạy cảm trong benchmark.
+    """
+    if not (0.0 <= block_max_fpr <= caution_max_fpr <= 1.0):
+        raise ValueError("FPR policy phải thỏa 0 <= block_max_fpr <= caution_max_fpr <= 1")
+
+    y_true_arr = np.asarray(y_true, dtype=int).ravel()
+    scores_arr = np.clip(np.asarray(calibrated_scores, dtype=float).ravel(), 0.0, 1.0)
+    if len(y_true_arr) == 0 or len(y_true_arr) != len(scores_arr):
+        raise ValueError("y_true và calibrated_scores phải có cùng số phần tử và không rỗng")
+
+    candidates = np.unique(np.concatenate(([0.0, 1.0], scores_arr)))
+
+    def metrics_at(threshold: float) -> dict[str, float]:
+        predictions = (scores_arr >= threshold).astype(int)
+        tn, fp, fn, tp = confusion_matrix(y_true_arr, predictions, labels=[0, 1]).ravel()
+        fpr = float(fp / (fp + tn)) if fp + tn else 0.0
+        recall = float(tp / (tp + fn)) if tp + fn else 0.0
+        return {"threshold": float(threshold), "fpr": fpr, "recall": recall}
+
+    def choose(max_fpr: float, minimum: float = 0.0) -> dict[str, float]:
+        feasible = [metrics_at(float(th)) for th in candidates if th >= minimum]
+        constrained = [item for item in feasible if item["fpr"] <= max_fpr]
+        pool = constrained or feasible
+        # Tối đa recall, sau đó chọn threshold cao hơn để ưu tiên ít cảnh báo nhầm.
+        return max(pool, key=lambda item: (item["recall"], item["threshold"]))
+
+    caution = choose(caution_max_fpr)
+    block = choose(block_max_fpr, minimum=min(1.0, caution["threshold"] + 1e-6))
+    if block["threshold"] <= caution["threshold"]:
+        higher = [
+            item
+            for item in (metrics_at(float(th)) for th in candidates)
+            if item["threshold"] > caution["threshold"]
+        ]
+        if not higher:
+            raise ValueError("Policy Validation không tạo được hai ngưỡng phân biệt")
+        block = min(higher, key=lambda item: item["threshold"])
+
+    policy = ActionPolicy(
+        caution_threshold=round(caution["threshold"], 6),
+        block_threshold=round(block["threshold"], 6),
+        policy_version=policy_version,
+    )
+    return {
+        "policy": policy.to_dict(),
+        "caution_metrics": caution,
+        "block_metrics": block,
+        "constraints": {
+            "caution_max_fpr": caution_max_fpr,
+            "block_max_fpr": block_max_fpr,
+        },
     }
