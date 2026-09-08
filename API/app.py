@@ -29,7 +29,7 @@ def create_app() -> FastAPI:
     """Khởi tạo ứng dụng FastAPI với đầy đủ routers, validation và error handlers."""
     app = FastAPI(
         title="PhishGuard ML API",
-        description="REST API phân loại rủi ro URL dựa trên 25 đặc trưng lexical-v3 và mô hình XGBoost Native JSON.",
+        description="REST API phân loại rủi ro URL dựa trên hợp đồng đặc trưng release-bound và mô hình XGBoost Native JSON.",
         version=__version__,
         contact={"name": "PhishGuard ML Maintainers"},
         license_info={"name": "MIT"},

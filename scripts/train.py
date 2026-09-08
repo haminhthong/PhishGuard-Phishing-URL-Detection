@@ -147,7 +147,7 @@ def main() -> None:
 
     model_ver = config.get("model_version", "4.0.0")
     random_seed = config.get("random_seed", 42)
-    feature_contract = config.get("feature_contract", FEATURE_CONTRACT_V2)
+    feature_contract = config.get("feature_contract", FEATURE_CONTRACT_V4)
     guardrails = config.get("model_selection", {}).get("guardrails", {})
     promotion_policy = config.get("promotion_policy", {})
     cal_method = config.get("calibration", {}).get("method", "isotonic")
@@ -226,18 +226,20 @@ def main() -> None:
 
     # 4. Chọn kiến trúc trên Validation bằng PR-AUC và độ trễ, chưa chọn policy
     print("\n 🏆 5. Lựa chọn kiến trúc mô hình tối ưu theo PR-AUC và Guardrails...")
-    selected_name, rationale, _satisfies_latency_guardrail = select_best_candidate_model(
+    benchmark_winner, benchmark_rationale, _benchmark_latency_ok = select_best_candidate_model(
         results_table, guardrails
     )
-    print(f"   Selected Model Architecture: {selected_name}")
-    print(f"   Rationale:                   {rationale}")
-
-    # Kiểm tra mô hình có thuộc nhóm được phép đóng gói hay không
-    is_deployable = selected_name in {"XGBoost"}
-    if not is_deployable:
-        print(
-            f"   [CẢNH BÁO] Mô hình {selected_name} không thuộc deployable model family (XGBoost JSON). Sẽ từ chối auto-promotion."
-        )
+    selected_name = "XGBoost"
+    rationale = (
+        "XGBoost là model production canonical và là artifact duy nhất được đóng gói; "
+        f"{benchmark_winner} chỉ là kết quả benchmark tham khảo. {benchmark_rationale}"
+    )
+    xgb_selection_latency_ok = bool(
+        xgb_metrics["p95_latency_ms"] <= guardrails.get("max_latency_p95_ms", 5.0)
+    )
+    print(f"   Benchmark winner (tham khảo): {benchmark_winner}")
+    print("   Production candidate:          XGBoost")
+    print(f"   Rationale:                     {rationale}")
 
     # 5. Huấn luyện lại champion trên Train + Validation
     print("\n 🔄 6. Tái huấn luyện (Refit) Champion Model trên tập gộp [Train + Validation]...")
@@ -316,7 +318,7 @@ def main() -> None:
 
     passed_val = bool(val_pr_auc >= val_pol.get("min_pr_auc", 0.85))
     passed_cal = bool(cal_eval["ece_after"] <= cal_pol.get("max_ece", 0.05))
-    passed_lat = bool(val_lat <= serv_pol.get("max_model_p95_ms", 5.0))
+    passed_lat = bool(xgb_selection_latency_ok and val_lat <= serv_pol.get("max_model_p95_ms", 5.0))
     passed_block = bool(
         policy_eval["block"]["false_positive_rate"] <= block_gate.get("max_fpr", 0.005)
         and policy_eval["block"]["recall"] >= block_gate.get("min_recall", 0.80)
@@ -332,14 +334,14 @@ def main() -> None:
         and passed_lat
         and passed_block
         and passed_caution
-        and is_deployable
+        and selected_name == "XGBoost"
     )
     print(f"   • Validation Guardrails:  {'PASSED ✅' if passed_val else 'FAILED ❌'}")
     print(f"   • Calibration ECE Target: {'PASSED ✅' if passed_cal else 'FAILED ❌'}")
     print(f"   • Serving Latency Target: {'PASSED ✅' if passed_lat else 'FAILED ❌'}")
     print(f"   • Block Policy Gate:       {'PASSED ✅' if passed_block else 'FAILED ❌'}")
     print(f"   • Caution Policy Gate:     {'PASSED ✅' if passed_caution else 'FAILED ❌'}")
-    print(f"   • Deployable Artifact:    {'PASSED ✅' if is_deployable else 'FAILED ❌'}")
+    print("   • Deployable Artifact:    PASSED ✅ (XGBoost Native JSON)")
     print(f"   => CANDIDATE ELIGIBILITY: {'ELIGIBLE ✅' if candidate_eligible else 'BLOCKED ❌'}")
 
     # 10. Đóng gói artifact bất biến theo version

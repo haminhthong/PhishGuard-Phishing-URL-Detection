@@ -174,6 +174,7 @@ def load_phishguard_model(
     metadata_path: Path | None = None,
 ) -> LoadedModel:
     """Nạp model + calibrator + policy + resource contract theo nguyên tắc fail-closed."""
+    using_active_release = model_path is None
     resolved_model, resolved_meta, resolved_calibration = resolve_model_paths(
         model_path, metadata_path
     )
@@ -197,7 +198,13 @@ def load_phishguard_model(
             code="MODEL_LOAD_ERROR", message=f"Không thể nạp model JSON: {error}", status_code=503
         ) from error
 
-    model_version = str(metadata.get("model_version", ""))
+    model_version = str(metadata.get("model_version", "")).strip()
+    if not model_version:
+        raise PhishGuardAPIException(
+            code="ARTIFACT_METADATA_ERROR",
+            message="Release metadata thiếu model_version",
+            status_code=503,
+        )
     feature_contract = str(metadata.get("feature_contract", ""))
     contract_columns = {
         FEATURE_CONTRACT_V1: FEATURE_COLUMNS_V1,
@@ -304,6 +311,22 @@ def load_phishguard_model(
             message="Release metadata thiếu release_id",
             status_code=503,
         )
+    if using_active_release:
+        registry_path = Path(__file__).resolve().parents[2] / "releases" / "current_release.json"
+        try:
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise PhishGuardAPIException(
+                code="REGISTRY_READ_ERROR",
+                message=f"Không thể xác minh active release pointer: {error}",
+                status_code=503,
+            ) from error
+        if str(registry.get("release_id", "")).strip() != release_id:
+            raise PhishGuardAPIException(
+                code="ARTIFACT_VERSION_MISMATCH",
+                message="release_id của current_release.json không khớp metadata",
+                status_code=503,
+            )
     return LoadedModel(
         model=model,
         metadata=metadata,

@@ -16,6 +16,21 @@ from API.dependencies import get_cache
 from API.errors import PhishGuardAPIException
 from API.services.model_loader import load_phishguard_model
 
+SCORE_ROUTE = "/v1/score"
+BATCH_SCORE_ROUTE = "/v1/score/batch"
+LEGACY_SCORE_ROUTE = "/phish-url-prediction"
+
+
+class RouteRegistrationTests(unittest.TestCase):
+    """Kiểm tra contract route không cần nạp model hoặc active release."""
+
+    def test_canonical_and_legacy_prediction_routes_are_registered(self) -> None:
+        route_paths = {route.path for route in app.routes}
+        self.assertIn(SCORE_ROUTE, route_paths)
+        self.assertIn(BATCH_SCORE_ROUTE, route_paths)
+        self.assertIn(LEGACY_SCORE_ROUTE, route_paths)
+        self.assertIn("/phish-url-prediction/batch", route_paths)
+
 
 class ApiContractTests(unittest.TestCase):
     @classmethod
@@ -66,7 +81,7 @@ class ApiContractTests(unittest.TestCase):
     def test_prediction_response_contract_for_valid_url(self) -> None:
         """Kiểm tra schema phản hồi canonical: risk_score, decision và versions."""
         response = self.client.post(
-            "/phish-url-prediction",
+            SCORE_ROUTE,
             json={"url": "https://google.com"},
         )
         self.assertEqual(response.status_code, 200)
@@ -82,28 +97,37 @@ class ApiContractTests(unittest.TestCase):
         )
         self.assertFalse(data["cached"])
 
+    def test_legacy_prediction_alias_remains_compatible(self) -> None:
+        """Alias cũ vẫn trả cùng schema canonical để hỗ trợ client hiện hữu."""
+        response = self.client.post(
+            LEGACY_SCORE_ROUTE,
+            json={"url": "https://legacy-alias.example"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("risk_score", response.json())
+
     def test_prediction_lru_cache_hit(self) -> None:
         """Kiểm tra cơ chế LRU Cache Hit khi gửi trùng URL nhiều lần."""
         test_url = "https://example.com/login"
 
         # Lần 1: Cache Miss
-        res1 = self.client.post("/phish-url-prediction", json={"url": test_url})
+        res1 = self.client.post(SCORE_ROUTE, json={"url": test_url})
         self.assertEqual(res1.status_code, 200)
         self.assertFalse(res1.json()["cached"])
 
         # Lần 2: Cache Hit
-        res2 = self.client.post("/phish-url-prediction", json={"url": test_url})
+        res2 = self.client.post(SCORE_ROUTE, json={"url": test_url})
         self.assertEqual(res2.status_code, 200)
         self.assertTrue(res2.json()["cached"])
 
     def test_batch_prediction_endpoint(self) -> None:
-        """Kiểm tra endpoint dự đoán hàng loạt POST /phish-url-prediction/batch."""
+        """Kiểm tra endpoint canonical POST /v1/score/batch."""
         urls = [
             "https://google.com",
             "https://github.com",
             "http://192.168.1.1/admin/login",
         ]
-        response = self.client.post("/phish-url-prediction/batch", json={"urls": urls})
+        response = self.client.post(BATCH_SCORE_ROUTE, json={"urls": urls})
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["total"], 3)
@@ -114,7 +138,7 @@ class ApiContractTests(unittest.TestCase):
     def test_batch_rejects_invalid_url(self) -> None:
         """Batch phải từ chối URL sai bằng HTTP 422 thay vì trả nhãn an toàn giả."""
         response = self.client.post(
-            "/phish-url-prediction/batch",
+            BATCH_SCORE_ROUTE,
             json={"urls": ["https://example.com", "not-a-valid-url"]},
         )
         self.assertEqual(response.status_code, 422)
@@ -124,12 +148,12 @@ class ApiContractTests(unittest.TestCase):
 
     def test_rejects_unsupported_url_scheme(self) -> None:
         """API từ chối các URL không thuộc giao thức http/https (mã 422)."""
-        response = self.client.post("/phish-url-prediction", json={"url": "file:///etc/passwd"})
+        response = self.client.post(SCORE_ROUTE, json={"url": "file:///etc/passwd"})
         self.assertEqual(response.status_code, 422)
 
     def test_rejects_url_without_hostname(self) -> None:
         """API từ chối URL thiếu hostname hợp lệ."""
-        response = self.client.post("/phish-url-prediction", json={"url": "https:///missing-host"})
+        response = self.client.post(SCORE_ROUTE, json={"url": "https:///missing-host"})
         self.assertEqual(response.status_code, 422)
 
     def test_max_url_length_boundary_2048(self) -> None:
@@ -138,7 +162,7 @@ class ApiContractTests(unittest.TestCase):
         valid_long_url = f"https://example.com/{path}"
         self.assertEqual(len(valid_long_url), 2048)
 
-        response = self.client.post("/phish-url-prediction", json={"url": valid_long_url})
+        response = self.client.post(SCORE_ROUTE, json={"url": valid_long_url})
         self.assertEqual(response.status_code, 200)
 
     def test_rejects_over_max_url_length_2049(self) -> None:
@@ -147,19 +171,19 @@ class ApiContractTests(unittest.TestCase):
         invalid_long_url = f"https://example.com/{path}"
         self.assertEqual(len(invalid_long_url), 2049)
 
-        response = self.client.post("/phish-url-prediction", json={"url": invalid_long_url})
+        response = self.client.post(SCORE_ROUTE, json={"url": invalid_long_url})
         self.assertEqual(response.status_code, 422)
 
     def test_batch_limit_exceeded_51_urls(self) -> None:
         """Batch quá 50 URL (51 URLs) phải bị từ chối mã 422."""
         urls = [f"https://example{i}.com" for i in range(51)]
-        response = self.client.post("/phish-url-prediction/batch", json={"urls": urls})
+        response = self.client.post(BATCH_SCORE_ROUTE, json={"urls": urls})
         self.assertEqual(response.status_code, 422)
 
     def test_punycode_domain_support(self) -> None:
         """URL có tên miền Punycode phải được xử lý thành công."""
         response = self.client.post(
-            "/phish-url-prediction",
+            SCORE_ROUTE,
             json={"url": "https://xn--e1afmkfd.xn--p1ai/path"},
         )
         self.assertEqual(response.status_code, 200)
@@ -167,7 +191,7 @@ class ApiContractTests(unittest.TestCase):
 
     def test_clear_cache_endpoint(self) -> None:
         """Kiểm tra endpoint DELETE /cache xóa sạch bộ nhớ đệm."""
-        self.client.post("/phish-url-prediction", json={"url": "https://test.org"})
+        self.client.post(SCORE_ROUTE, json={"url": "https://test.org"})
         del_res = self.client.delete("/cache")
         self.assertEqual(del_res.status_code, 200)
         self.assertEqual(del_res.json()["status"], "ok")
@@ -193,7 +217,7 @@ class ApiContractTests(unittest.TestCase):
         url = "https://concurrent-test-example.com/login"
 
         def make_request() -> int:
-            res = self.client.post("/phish-url-prediction", json={"url": url})
+            res = self.client.post(SCORE_ROUTE, json={"url": url})
             return res.status_code
 
         with ThreadPoolExecutor(max_workers=10) as executor:
@@ -209,7 +233,7 @@ class ApiContractTests(unittest.TestCase):
             "https://test-order-2.com",
             "https://test-order-3.com",
         ]
-        response = self.client.post("/phish-url-prediction/batch", json={"urls": urls})
+        response = self.client.post(BATCH_SCORE_ROUTE, json={"urls": urls})
         self.assertEqual(response.status_code, 200)
 
     def test_liveness_and_readiness_endpoints(self) -> None:
@@ -227,7 +251,7 @@ class ApiContractTests(unittest.TestCase):
 
     def test_decoupled_model_and_risk_policy_response_structure(self) -> None:
         """Kiểm tra API chỉ trả canonical risk score và browser decision."""
-        res = self.client.post("/phish-url-prediction", json={"url": "https://paypal.com"})
+        res = self.client.post(SCORE_ROUTE, json={"url": "https://paypal.com"})
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertIn("risk_score", data)

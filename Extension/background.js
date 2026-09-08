@@ -4,14 +4,14 @@
  * Nhiệm vụ chính:
  * 1. Lắng nghe sự kiện điều hướng tab (chrome.tabs.onUpdated).
  * 2. Kiểm tra danh sách trắng cục bộ (Local Whitelist) và công tắc bảo vệ.
- * 3. Gửi yêu cầu kiểm tra URL tới REST API FastAPI (127.0.0.1:5000/phish-url-prediction).
+ * 3. Gửi yêu cầu kiểm tra URL tới REST API FastAPI (127.0.0.1:5000/v1/score).
  * 4. Quản lý Tab Token bất đồng bộ nhằm ngăn chặn hiện tượng Race Condition khi đổi tab nhanh.
  * 5. Cập nhật Dynamic Badge Icon trên Chrome Toolbar (ALLOW, CAUTION, BLOCK, ?).
  * 6. Lưu trữ lịch sử quét sanitized real-time (không lưu query string nhạy cảm).
  */
 importScripts("config.js");
 
-const API_URL = `${PHISH_GUARD_CONFIG.apiBaseUrl}/phish-url-prediction`;
+const API_URL = `${PHISH_GUARD_CONFIG.apiBaseUrl}/v1/score`;
 const REQUEST_TIMEOUT_MS = PHISH_GUARD_CONFIG.requestTimeoutMs;
 const KEYS = PHISH_GUARD_CONFIG.storageKeys;
 

@@ -51,7 +51,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (!response.ok) throw new Error("API trả về lỗi");
             const data = await response.json();
             apiStatusBox.classList.add("online");
-            apiStatusTitle.textContent = `Hệ thống sẵn sàng (${data.model_version || "v3.0.0"})`;
+            apiStatusTitle.textContent = `Hệ thống sẵn sàng (${data.model_version || "chưa xác định"})`;
         } catch {
             apiStatusBox.classList.add("offline");
             apiStatusTitle.textContent = "API chưa hoạt động (Offline - Hãy bật FastAPI server)";

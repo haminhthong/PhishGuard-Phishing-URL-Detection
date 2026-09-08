@@ -38,18 +38,18 @@ class PhishGuardUser(HttpUser):
     def predict_single_url(self) -> None:
         url = random.choice(SAMPLE_URLS)
         self.client.post(
-            "/phish-url-prediction",
+            "/v1/score",
             json={"url": url},
-            name="/phish-url-prediction [Single]",
+            name="/v1/score [Single]",
         )
 
     @task(2)
     def predict_batch_urls(self) -> None:
         batch = random.sample(SAMPLE_URLS, k=random.randint(2, 5))
         self.client.post(
-            "/phish-url-prediction/batch",
+            "/v1/score/batch",
             json={"urls": batch},
-            name="/phish-url-prediction/batch [Batch]",
+            name="/v1/score/batch [Batch]",
         )
 
     @task(1)

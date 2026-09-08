@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PhishGuard ML",
-  "version": "2.2.0",
+  "version": "4.0.0",
   "description": "Cảnh báo sớm URL lừa đảo bằng mô hình Machine Learning XGBoost",
   "icons": {
     "128": "icon.png"

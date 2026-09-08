@@ -120,6 +120,12 @@ def predict_single_url(
 
 
 @router.post(
+    "/v1/score/batch",
+    response_model=BatchPredictionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Chấm điểm hàng loạt (tối đa 50 URL) theo release contract",
+)
+@router.post(
     "/phish-url-prediction/batch",
     response_model=BatchPredictionResponse,
     status_code=status.HTTP_200_OK,

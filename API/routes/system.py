@@ -94,7 +94,7 @@ def model_info(
             "resources": loaded_model.resource_hashes,
         },
         "training_date": loaded_model.metadata.get("training_date"),
-        "test_metrics": loaded_model.metadata.get("test_metrics", {}),
+        "validation_metrics": loaded_model.metadata.get("validation_metrics", {}),
     }
 
 

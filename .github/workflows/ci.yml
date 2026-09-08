@@ -18,9 +18,17 @@ jobs:
           cache: pip
       - name: Cài thư viện
         run: python -m pip install -r requirements-dev.txt
-      - name: Kiểm tra code Python
-        run: ruff check API tests
+      - name: Kiểm tra lint Python
+        run: ruff check phishguard API scripts tests
+      - name: Kiểm tra format Python
+        run: ruff format --check phishguard API scripts tests
       - name: Chạy kiểm thử
         run: python -m unittest discover -s tests -v
       - name: Kiểm tra manifest extension
         run: python -m json.tool Extension/manifest.json > /dev/null
+      - name: Kiểm tra cú pháp extension
+        run: |
+          node --check Extension/background.js
+          node --check Extension/content.js
+          node --check Extension/popup.js
+          node --check Extension/warning.js
