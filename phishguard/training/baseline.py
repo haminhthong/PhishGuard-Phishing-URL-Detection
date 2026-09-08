@@ -19,7 +19,9 @@ class RuleBasedPhishingClassifier(BaseEstimator, ClassifierMixin):
         self.score_threshold = score_threshold
         self.classes_ = np.array([0, 1])
 
-    def fit(self, X: pd.DataFrame | np.ndarray, y: np.ndarray | None = None) -> RuleBasedPhishingClassifier:
+    def fit(
+        self, X: pd.DataFrame | np.ndarray, y: np.ndarray | None = None
+    ) -> RuleBasedPhishingClassifier:
         return self
 
     def _compute_risk_score(self, row: pd.Series | np.ndarray) -> float:

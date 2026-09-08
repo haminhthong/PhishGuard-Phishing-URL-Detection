@@ -32,13 +32,11 @@ def readiness_probe(
 ) -> dict[str, Any]:
     return {
         "status": "ready",
+        "release": loaded_model.release_id,
         "model_version": loaded_model.model_version,
         "feature_contract": loaded_model.feature_contract,
         "feature_count": loaded_model.feature_count,
-        "threshold": loaded_model.threshold,
-        "policy_version": loaded_model.policy_version,
-        "caution_threshold": loaded_model.action_policy.caution_threshold,
-        "block_threshold": loaded_model.action_policy.block_threshold,
+        "action_policy": loaded_model.action_policy.to_dict(),
         "calibration_loaded": loaded_model.calibrator.is_fitted,
     }
 
@@ -50,13 +48,11 @@ def health_check(
 ) -> dict[str, Any]:
     return {
         "status": "ok",
+        "release": loaded_model.release_id,
         "model_version": loaded_model.model_version,
         "feature_count": loaded_model.feature_count,
         "feature_contract": loaded_model.feature_contract,
-        "threshold": loaded_model.threshold,
-        "policy_version": loaded_model.policy_version,
-        "caution_threshold": loaded_model.action_policy.caution_threshold,
-        "block_threshold": loaded_model.action_policy.block_threshold,
+        "action_policy": loaded_model.action_policy.to_dict(),
         "cache_entries": cache.stats()["used"],
     }
 
@@ -69,24 +65,34 @@ def model_info(
         FEATURE_COLUMNS_V1,
         FEATURE_COLUMNS_V2,
         FEATURE_COLUMNS_V3,
+        FEATURE_COLUMNS_V4,
         FEATURE_CONTRACT_V2,
         FEATURE_CONTRACT_V3,
+        FEATURE_CONTRACT_V4,
     )
 
     cols = {
         "lexical-v1": FEATURE_COLUMNS_V1,
         FEATURE_CONTRACT_V2: FEATURE_COLUMNS_V2,
         FEATURE_CONTRACT_V3: FEATURE_COLUMNS_V3,
+        FEATURE_CONTRACT_V4: FEATURE_COLUMNS_V4,
     }[loaded_model.feature_contract]
     return {
         "model_type": loaded_model.metadata.get("model_type", type(loaded_model.model).__name__),
         "model_version": loaded_model.model_version,
+        "release": loaded_model.release_id,
         "feature_count": len(cols),
         "features": list(cols),
         "feature_contract": loaded_model.feature_contract,
-        "threshold": loaded_model.threshold,
         "policy_version": loaded_model.policy_version,
         "action_policy": loaded_model.action_policy.to_dict(),
+        "artifact_hashes": {
+            "model": loaded_model.model_sha256,
+            "calibration": loaded_model.calibration_sha256,
+            "action_policy": loaded_model.action_policy_sha256,
+            "feature_contract": loaded_model.feature_contract_hash,
+            "resources": loaded_model.resource_hashes,
+        },
         "training_date": loaded_model.metadata.get("training_date"),
         "test_metrics": loaded_model.metadata.get("test_metrics", {}),
     }

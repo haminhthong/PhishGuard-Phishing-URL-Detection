@@ -16,11 +16,14 @@ from phishguard.features import (
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
     FEATURE_COLUMNS_V3,
+    FEATURE_COLUMNS_V4,
     FEATURE_CONTRACT_V1,
     FEATURE_CONTRACT_V2,
     FEATURE_CONTRACT_V3,
+    FEATURE_CONTRACT_V4,
+    FeatureExtractor,
 )
-from phishguard.features.resources import RESOURCE_BUNDLE
+from phishguard.features.resources import RESOURCES_DIR, ResourceBundle, load_resource_bundle
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -43,14 +46,23 @@ class LoadedModel:
     model_version: str
     feature_contract: str
     feature_count: int
-    threshold: float
-    risk_thresholds: dict[str, float]
     calibrator: ProbabilityCalibrator
     action_policy: ActionPolicy
+    release_id: str
+    feature_contract_hash: str
+    model_sha256: str
+    calibration_sha256: str
+    action_policy_sha256: str
+    resource_bundle: ResourceBundle
+    feature_extractor: FeatureExtractor
 
     @property
     def policy_version(self) -> str:
         return self.action_policy.policy_version
+
+    @property
+    def resource_hashes(self) -> dict[str, str]:
+        return self.resource_bundle.hashes
 
 
 def resolve_model_paths(
@@ -59,21 +71,23 @@ def resolve_model_paths(
 ) -> tuple[Path, Path, Path]:
     """Xác định model, metadata và calibration từ active release pointer."""
     project_root = Path(__file__).resolve().parents[2]
-    production_registry = project_root / "artifacts" / "models" / "production.json"
-    default_model = project_root / "API" / "XGB.json"
-    default_meta = project_root / "API" / "model_metadata.json"
+    releases_root = (project_root / "releases").resolve()
+    current_registry = project_root / "releases" / "current_release.json"
 
-    if model_path is not None and model_path != default_model:
+    if model_path is not None:
         meta_path = metadata_path or model_path.parent / "metadata.json"
         return model_path, meta_path, model_path.parent / "calibration.json"
 
-    if production_registry.is_file():
+    if current_registry.is_file():
+        registry_path = current_registry
         try:
-            registry = json.loads(production_registry.read_text(encoding="utf-8"))
-            model_dir_value = registry.get("model_dir")
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            model_dir_value = registry.get("release_dir") or registry.get("model_dir")
             if not isinstance(model_dir_value, str) or not model_dir_value:
-                raise ValueError("production.json thiếu model_dir")
-            model_dir = project_root / model_dir_value
+                raise ValueError(f"{registry_path.name} thiếu release_dir/model_dir")
+            model_dir = (project_root / model_dir_value).resolve()
+            if not model_dir.is_relative_to(releases_root):
+                raise ValueError("release_dir phải nằm trong thư mục releases")
             return (
                 model_dir / "model.json",
                 model_dir / "metadata.json",
@@ -86,7 +100,11 @@ def resolve_model_paths(
                 status_code=503,
             ) from error
 
-    return default_model, default_meta, default_model.parent / "calibration.json"
+    raise PhishGuardAPIException(
+        code="RELEASE_NOT_PROMOTED",
+        message="Chưa có releases/current_release.json; API không được phục vụ artifact legacy.",
+        status_code=503,
+    )
 
 
 def _read_json(path: Path, code: str) -> dict[str, Any]:
@@ -130,7 +148,7 @@ def _verify_bundled_resources(release_dir: Path, expected_hashes: dict[str, str]
     """Kiểm tra bản sao resource nếu release bundle có đóng gói kèm."""
     resource_dir = release_dir / "resources"
     if not resource_dir.is_dir():
-        # Artifact 3.2 cũ dùng resources ở project root; v4 phải tự chứa.
+        # Artifact legacy có thể dùng resources ở project root; v4 phải tự chứa.
         return
 
     resource_files = {
@@ -185,6 +203,7 @@ def load_phishguard_model(
         FEATURE_CONTRACT_V1: FEATURE_COLUMNS_V1,
         FEATURE_CONTRACT_V2: FEATURE_COLUMNS_V2,
         FEATURE_CONTRACT_V3: FEATURE_COLUMNS_V3,
+        FEATURE_CONTRACT_V4: FEATURE_COLUMNS_V4,
     }
     if feature_contract not in contract_columns:
         raise PhishGuardAPIException(
@@ -208,6 +227,14 @@ def load_phishguard_model(
             status_code=503,
         )
 
+    resource_dir = resolved_calibration.parent / "resources"
+    if feature_contract == FEATURE_CONTRACT_V4 and not resource_dir.is_dir():
+        raise PhishGuardAPIException(
+            code="RESOURCE_CONTRACT_ERROR",
+            message="Release lexical-v4 phải chứa resources/ tự đủ",
+            status_code=503,
+        )
+    resource_bundle = load_resource_bundle(resource_dir if resource_dir.is_dir() else RESOURCES_DIR)
     resource_hashes = metadata.get("resource_hashes")
     if not isinstance(resource_hashes, dict):
         raise PhishGuardAPIException(
@@ -215,15 +242,15 @@ def load_phishguard_model(
             message="Release metadata thiếu resource_hashes",
             status_code=503,
         )
-    for resource_name, expected_hash in RESOURCE_BUNDLE.hashes.items():
+    for resource_name, expected_hash in resource_bundle.hashes.items():
         if str(resource_hashes.get(resource_name, "")).lower() != expected_hash.lower():
             raise PhishGuardAPIException(
                 code="RESOURCE_CONTRACT_ERROR",
                 message=f"Checksum resource không khớp: {resource_name}",
                 status_code=503,
             )
-    _verify_bundled_resources(resolved_calibration.parent, RESOURCE_BUNDLE.hashes)
-    if metadata.get("tld_library_version") != RESOURCE_BUNDLE.tld_library_version:
+    _verify_bundled_resources(resolved_calibration.parent, resource_bundle.hashes)
+    if metadata.get("tld_library_version") != resource_bundle.tld_library_version:
         raise PhishGuardAPIException(
             code="RESOURCE_CONTRACT_ERROR",
             message="Phiên bản thư viện PSL/TLD không khớp release metadata",
@@ -231,9 +258,10 @@ def load_phishguard_model(
         )
 
     calibration = _read_json(resolved_calibration, "CALIBRATION_READ_ERROR")
+    calibration_sha256 = metadata.get("calibration_sha256")
     _verify_checksum(
         resolved_calibration,
-        metadata.get("calibration_sha256"),
+        calibration_sha256,
         "calibration",
     )
     if calibration.get("model_version", model_version) != model_version:
@@ -258,7 +286,8 @@ def load_phishguard_model(
 
     policy_path = resolved_calibration.parent / "action_policy.json"
     policy_data = _read_json(policy_path, "POLICY_READ_ERROR")
-    _verify_checksum(policy_path, metadata.get("action_policy_sha256"), "action_policy")
+    action_policy_sha256 = metadata.get("action_policy_sha256")
+    _verify_checksum(policy_path, action_policy_sha256, "action_policy")
     try:
         action_policy = ActionPolicy.from_dict(policy_data)
     except (TypeError, ValueError) as error:
@@ -268,19 +297,26 @@ def load_phishguard_model(
             status_code=503,
         ) from error
 
-    risk_thresholds = {
-        "caution": action_policy.caution_threshold,
-        "block": action_policy.block_threshold,
-    }
+    release_id = str(metadata.get("release_id", "")).strip()
+    if not release_id:
+        raise PhishGuardAPIException(
+            code="ARTIFACT_METADATA_ERROR",
+            message="Release metadata thiếu release_id",
+            status_code=503,
+        )
     return LoadedModel(
         model=model,
         metadata=metadata,
         model_version=model_version,
         feature_contract=feature_contract,
         feature_count=feature_count,
-        # Giữ trường legacy để client cũ không crash; product decision không dùng nó.
-        threshold=action_policy.block_threshold,
-        risk_thresholds=risk_thresholds,
         calibrator=calibrator,
         action_policy=action_policy,
+        release_id=release_id,
+        feature_contract_hash=expected_hash,
+        model_sha256=str(metadata["model_sha256"]),
+        calibration_sha256=str(calibration_sha256),
+        action_policy_sha256=str(action_policy_sha256),
+        resource_bundle=resource_bundle,
+        feature_extractor=FeatureExtractor(feature_contract, resource_bundle),
     )

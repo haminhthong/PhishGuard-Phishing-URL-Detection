@@ -50,38 +50,43 @@ class BatchURLRequest(BaseModel):
         return [normalize_web_url(val) for val in values]
 
 
-class ModelDetails(BaseModel):
-    """Chi tiết quyết định định lượng của mô hình Machine Learning."""
+class DecisionDetails(BaseModel):
+    """Quyết định browser canonical, không phải nhãn legitimate/phishing."""
 
-    score: float
-    threshold: float
-    label: int
-    version: str
-
-
-class RiskDetails(BaseModel):
-    """Chính sách hành động an toàn của hệ thống phòng vệ."""
-
-    level: str
     action: str
+    risk_level: str
+    reason: str
+
+
+class SignalDetails(BaseModel):
+    """Các tín hiệu lexical chính để giải thích ngắn gọn quyết định."""
+
+    punycode: bool
+    brand_mismatch: bool
+    shortener: bool
+    suspicious_tld: bool
+
+
+class VersionDetails(BaseModel):
+    """Lineage của release đã tạo ra kết quả."""
+
+    release: str
+    model: str
+    feature_contract: str
+    feature_contract_hash: str
+    policy: str
 
 
 class PredictionResponse(BaseModel):
-    """Kết quả phân loại và chính sách rủi ro cho một URL."""
+    """Hợp đồng API canonical cho điểm rủi ro và can thiệp browser."""
 
+    request_id: str
     url: str
-    label: int
-    prediction: str
-    model_score: float
-    phishing_risk_score: float
-    action: str
-    policy_version: str
-    risk_level: str
-    model_version: str
-    feature_contract: str
+    risk_score: float
+    decision: DecisionDetails
+    signals: SignalDetails
+    versions: VersionDetails
     cached: bool = False
-    model: ModelDetails | None = None
-    risk: RiskDetails | None = None
 
 
 class BatchPredictionResponse(BaseModel):
@@ -94,6 +99,12 @@ class BatchPredictionResponse(BaseModel):
 router = APIRouter(tags=["Dự đoán URL"])
 
 
+@router.post(
+    "/v1/score",
+    response_model=PredictionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Chấm điểm rủi ro URL theo release contract",
+)
 @router.post(
     "/phish-url-prediction",
     response_model=PredictionResponse,

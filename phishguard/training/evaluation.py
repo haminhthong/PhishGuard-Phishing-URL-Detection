@@ -31,7 +31,9 @@ def compute_ece(y_true: Any, y_prob: Any, n_bins: int = 10) -> float:
     for i in range(n_bins):
         bin_lower = bin_boundaries[i]
         bin_upper = bin_boundaries[i + 1]
-        mask = (y_prob_arr >= bin_lower) & (y_prob_arr < bin_upper if i < n_bins - 1 else y_prob_arr <= bin_upper)
+        mask = (y_prob_arr >= bin_lower) & (
+            y_prob_arr < bin_upper if i < n_bins - 1 else y_prob_arr <= bin_upper
+        )
         bin_size = int(np.sum(mask))
         if bin_size > 0:
             bin_acc = float(np.mean(y_true_arr[mask]))
@@ -46,17 +48,20 @@ def classification_metrics(
     y_pred: Any,
     y_score: Any,
     latency_ms: float | None = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Tính metric báo cáo đầy đủ, bao gồm PR-AUC, ROC-AUC, FPR, FNR, Brier score, ECE và Latency."""
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
     ece = compute_ece(y_true, y_score)
+    has_both_classes = np.unique(np.asarray(y_true)).size > 1
     metrics = {
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "precision": float(precision_score(y_true, y_pred, zero_division=0)),
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
-        "roc_auc": float(roc_auc_score(y_true, y_score)),
-        "pr_auc": float(average_precision_score(y_true, y_score)),
+        # AUC không xác định trên slice chỉ có một nhãn; trả null thay vì làm
+        # hỏng toàn bộ report security stress.
+        "roc_auc": float(roc_auc_score(y_true, y_score)) if has_both_classes else None,
+        "pr_auc": float(average_precision_score(y_true, y_score)) if has_both_classes else None,
         "false_positive_rate": float(fp / (fp + tn)) if fp + tn else 0.0,
         "false_negative_rate": float(fn / (fn + tp)) if fn + tp else 0.0,
         "brier_score": float(brier_score_loss(y_true, y_score)),

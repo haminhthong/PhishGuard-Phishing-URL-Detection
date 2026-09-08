@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import sys
+from argparse import ArgumentParser
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 from API.services.model_loader import load_phishguard_model
 from phishguard.features import (
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
     FEATURE_COLUMNS_V3,
-    extract_features,
+    FEATURE_COLUMNS_V4,
+    FeatureExtractor,
 )
 from phishguard.training.data import (
     audit_and_clean_data,
@@ -27,30 +30,52 @@ if hasattr(sys.stdout, "reconfigure"):
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "Data"
-ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 LEGIT_CSV = DATA_DIR / "legit_url.csv"
 PHISHING_CSV = DATA_DIR / "verified_online.csv"
-DRIFT_REPORT_JSON = ARTIFACTS_DIR / "future_stress_report.json"
+RELEASES_DIR = PROJECT_ROOT / "releases" / "candidates"
+REPORTS_DIR = PROJECT_ROOT / "reports"
 
 
-def _features(frame: pd.DataFrame, contract: str) -> pd.DataFrame:
+def _features(frame: pd.DataFrame, extractor: FeatureExtractor) -> pd.DataFrame:
     columns = {
         "lexical-v1": FEATURE_COLUMNS_V1,
         "lexical-v2": FEATURE_COLUMNS_V2,
         "lexical-v3": FEATURE_COLUMNS_V3,
-    }[contract]
+        "lexical-v4": FEATURE_COLUMNS_V4,
+    }[extractor.contract]
     url_col = "raw_url" if "raw_url" in frame.columns else "url"
     return pd.DataFrame(
-        [extract_features(url, contract=contract) for url in frame[url_col]],
+        [extractor.extract(url) for url in frame[url_col]],
         columns=columns,
     )
 
 
-def main() -> None:
+def resolve_release_dir(release_dir: Path | None = None) -> Path:
+    """Resolve candidate rõ ràng, không phụ thuộc production pointer."""
+    if release_dir is not None:
+        return release_dir.resolve()
+    config_path = PROJECT_ROOT / "configs" / "train_config.yaml"
+    with config_path.open(encoding="utf-8") as file:
+        version = str((yaml.safe_load(file) or {}).get("model_version", "4.0.0"))
+    return (RELEASES_DIR / f"phishguard-{version}").resolve()
+
+
+def main(release_dir: Path | None = None) -> None:
+    if release_dir is None:
+        parser = ArgumentParser(description="Future Phishing Unseen-Domain Stress Test")
+        parser.add_argument("--release-dir", type=Path, help="Candidate cần đánh giá")
+        args = parser.parse_args()
+        release_dir = args.release_dir
+    release_dir = resolve_release_dir(release_dir)
     if not LEGIT_CSV.exists() or not PHISHING_CSV.exists():
         raise FileNotFoundError("Không tìm thấy snapshot dữ liệu nguồn")
 
-    loaded = load_phishguard_model()
+    if not release_dir.is_dir():
+        raise FileNotFoundError(f"Không tìm thấy candidate: {release_dir}")
+    loaded = load_phishguard_model(
+        model_path=release_dir / "model.json",
+        metadata_path=release_dir / "metadata.json",
+    )
     legit_df = pd.read_csv(LEGIT_CSV)
     phishing_df = pd.read_csv(PHISHING_CSV)
     cleaned, _ = audit_and_clean_data(legit_df, phishing_df, LEGIT_CSV, PHISHING_CSV)
@@ -65,7 +90,7 @@ def main() -> None:
     future = pd.concat([future_phishing, legit_holdout], ignore_index=True).sample(
         frac=1.0, random_state=42
     )
-    X_future = _features(future, loaded.feature_contract)
+    X_future = _features(future, loaded.feature_extractor)
     y_future = future["label"].to_numpy()
     raw_scores = loaded.model.predict_proba(X_future)[:, 1]
     scores = loaded.calibrator.calibrate(raw_scores)
@@ -73,7 +98,8 @@ def main() -> None:
     caution_predictions = (scores >= loaded.action_policy.caution_threshold).astype(int)
     block_predictions = (scores >= loaded.action_policy.block_threshold).astype(int)
     report = {
-        "protocol": "future-unseen-domain-stress-test",
+        "protocol": "future-phishing-unseen-domain-stress-test",
+        "release": loaded.release_id,
         "model_version": loaded.model_version,
         "policy_version": loaded.policy_version,
         "future_phishing_domains": int(future_phishing["domain"].nunique()),
@@ -84,7 +110,7 @@ def main() -> None:
         "recall_at_caution": classification_metrics(y_future, caution_predictions, scores),
         "recall_at_block": classification_metrics(y_future, block_predictions, scores),
     }
-    locked_report = ARTIFACTS_DIR / "test_evaluation_report.json"
+    locked_report = REPORTS_DIR / loaded.model_version / "locked_test_metrics.json"
     if locked_report.exists():
         locked_metrics = json.loads(locked_report.read_text(encoding="utf-8")).get("metrics", {})
         report["delta_pr_auc_vs_locked_test"] = report["recall_at_block"]["pr_auc"] - float(
@@ -94,8 +120,9 @@ def main() -> None:
             locked_metrics.get("recall", 0.0)
         )
 
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    DRIFT_REPORT_JSON.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    report_path = REPORTS_DIR / loaded.model_version / "future_phishing_unseen_domain_stress.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 

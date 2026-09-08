@@ -12,17 +12,14 @@ class APIConfig:
     """Đọc cấu hình từ biến môi trường hoặc dùng giá trị mặc định an toàn."""
 
     project_root: Path = Path(__file__).resolve().parents[1]
-    model_path: Path = Path(
-        os.getenv(
-            "PHISHGUARD_MODEL_PATH",
-            Path(__file__).resolve().parents[1] / "API" / "XGB.json",
-        )
+    # Không trỏ mặc định vào bản sao legacy; loader sẽ đọc current_release.json.
+    model_path: Path | None = (
+        Path(os.environ["PHISHGUARD_MODEL_PATH"]) if os.getenv("PHISHGUARD_MODEL_PATH") else None
     )
-    metadata_path: Path = Path(
-        os.getenv(
-            "PHISHGUARD_METADATA_PATH",
-            Path(__file__).resolve().parents[1] / "API" / "model_metadata.json",
-        )
+    metadata_path: Path | None = (
+        Path(os.environ["PHISHGUARD_METADATA_PATH"])
+        if os.getenv("PHISHGUARD_METADATA_PATH")
+        else None
     )
     host: str = os.getenv("PHISHGUARD_HOST", "127.0.0.1")
     port: int = int(os.getenv("PHISHGUARD_PORT", "5000"))

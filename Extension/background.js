@@ -249,15 +249,16 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
         if (pendingChecks.get(tabId) !== checkToken) return;
 
-        const score = Number(result.phishing_risk_score ?? result.model_score ?? result.model?.score);
-        const riskLevel = String(result.risk_level ?? result.risk?.level ?? "").toLowerCase();
-        const riskAction = String(result.action ?? result.risk?.action ?? "").toLowerCase();
+        const score = Number(result.risk_score);
+        const riskLevel = String(result.decision?.risk_level ?? "").toLowerCase();
+        const riskAction = String(result.decision?.action ?? "").toLowerCase();
+        const policyVersion = result.versions?.policy;
         if (!Number.isFinite(score) || !["allow", "caution", "block"].includes(riskAction)) {
             throw new Error("API thiếu risk score hoặc action policy hợp lệ");
         }
 
         // Chỉ lưu URL đã làm sạch (bỏ query & hash) vào lịch sử để bảo vệ quyền riêng tư
-        await recordScanHistory(tab.url, riskAction, score, riskLevel, result.policy_version);
+        await recordScanHistory(tab.url, riskAction, score, riskLevel, policyVersion);
 
         if (riskAction === "block") {
             // BLOCK: Hiển thị cảnh báo và kích hoạt interstitial.
@@ -265,11 +266,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             chrome.tabs.sendMessage(tabId, {
                 type: "PHISHING_DETECTED",
                 url: tab.url,
-                model_score: score,
-                confidence: score,
+                risk_score: score,
                 risk_level: riskLevel,
                 action: "block",
-                policy_version: result.policy_version || "unknown"
+                policy_version: policyVersion || "unknown"
             }).catch(() => {});
         } else if (riskAction === "caution") {
             // CAUTION: Cảnh báo mềm, không tự động chặn điều hướng.

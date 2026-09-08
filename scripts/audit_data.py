@@ -8,8 +8,9 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
-from phishguard.features import extract_features_v2
+from phishguard.features import FeatureExtractor
 from phishguard.training.data import DatasetManifest, audit_and_clean_data
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -18,6 +19,7 @@ if hasattr(sys.stdout, "reconfigure"):
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "Data"
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
+CONFIG_PATH = PROJECT_ROOT / "configs" / "train_config.yaml"
 LEGIT_CSV = DATA_DIR / "legit_url.csv"
 PHISHING_CSV = DATA_DIR / "verified_online.csv"
 REPORT_JSON = ARTIFACTS_DIR / "data_quality_report.json"
@@ -28,7 +30,7 @@ SOURCE_BIAS_JSON = ARTIFACTS_DIR / "source_bias_report.json"
 def build_source_bias_report(frame: pd.DataFrame) -> dict[str, object]:
     """Đo các thuộc tính lexical dễ phân biệt source và label."""
     url_column = "raw_url" if "raw_url" in frame.columns else "url"
-    features = pd.DataFrame([extract_features_v2(url) for url in frame[url_column]])
+    features = pd.DataFrame([FeatureExtractor().extract(url) for url in frame[url_column]])
     report: dict[str, object] = {
         "status": "computed",
         "warning": "Source statistics are diagnostic, not evidence of causal phishing signals.",
@@ -77,8 +79,11 @@ def main() -> None:
     with open(REPORT_JSON, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
+    with CONFIG_PATH.open(encoding="utf-8") as file:
+        model_version = str((yaml.safe_load(file) or {}).get("model_version", "4.0.0"))
+
     manifest = DatasetManifest(
-        dataset_version="v3.2.0",
+        dataset_version=f"v{model_version}",
         source_checksums={
             "legitimate": report.get("legitimate_sha256"),
             "phishing": report.get("phishing_sha256"),

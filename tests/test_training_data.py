@@ -43,9 +43,7 @@ class TrainingDataTests(unittest.TestCase):
         rows = []
         for index in range(80):
             label = index % 2
-            rows.append(
-                {"url": f"https://sample-{index}-class-{label}.com/path", "label": label}
-            )
+            rows.append({"url": f"https://sample-{index}-class-{label}.com/path", "label": label})
         splits = split_by_domain(pd.DataFrame(rows), random_state=7)
         train_domains = set(splits.train["domain"])
         validation_domains = set(splits.validation["domain"])
@@ -72,9 +70,7 @@ class TrainingDataTests(unittest.TestCase):
         rows = []
         for index in range(120):
             label = index % 2
-            rows.append(
-                {"url": f"https://domain-{index}.org/subpath", "label": label}
-            )
+            rows.append({"url": f"https://domain-{index}.org/subpath", "label": label})
         splits = split_by_domain_4way(
             pd.DataFrame(rows),
             test_size=0.10,
@@ -90,24 +86,31 @@ class TrainingDataTests(unittest.TestCase):
         ]
         for i in range(len(sets)):
             for j in range(i + 1, len(sets)):
-                self.assertTrue(sets[i].isdisjoint(sets[j]), f"Domain overlap between split {i} and {j}")
+                self.assertTrue(
+                    sets[i].isdisjoint(sets[j]), f"Domain overlap between split {i} and {j}"
+                )
 
     def test_temporal_split_protocol_b(self):
         """Kiểm tra chia tập theo trình tự thời gian (Protocol B - Temporal Holdout)."""
-        frame = pd.DataFrame({
-            "url": [
-                "https://d1.com", "https://d2.com", "https://d3.com",
-                "https://d4.com", "https://d5.com",
-            ],
-            "submission_time": [
-                "2025-01-01T10:00:00Z",
-                "2025-01-02T10:00:00Z",
-                "2025-01-03T10:00:00Z",
-                "2025-02-01T10:00:00Z",
-                "2025-02-02T10:00:00Z",
-            ],
-            "label": [1, 1, 1, 1, 1],
-        })
+        frame = pd.DataFrame(
+            {
+                "url": [
+                    "https://d1.com",
+                    "https://d2.com",
+                    "https://d3.com",
+                    "https://d4.com",
+                    "https://d5.com",
+                ],
+                "submission_time": [
+                    "2025-01-01T10:00:00Z",
+                    "2025-01-02T10:00:00Z",
+                    "2025-01-03T10:00:00Z",
+                    "2025-02-01T10:00:00Z",
+                    "2025-02-02T10:00:00Z",
+                ],
+                "label": [1, 1, 1, 1, 1],
+            }
+        )
         temporal = temporal_split_protocol_b(frame, test_ratio=0.40)
         self.assertEqual(len(temporal.train), 3)
         self.assertEqual(len(temporal.test), 2)

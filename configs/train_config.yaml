@@ -1,7 +1,7 @@
 # Cấu hình huấn luyện, hiệu chuẩn và kiểm thử nền tảng PhishGuard ML
 model_version: "4.0.0"
 random_seed: 42
-feature_contract: lexical-v3
+feature_contract: lexical-v4
 
 split:
   strategy: stratified-registered-domain-5way
@@ -30,9 +30,11 @@ calibration:
   method: isotonic # isotonic | sigmoid
 
 threshold_policy:
-  policy_version: browser-risk-v1
+  policy_version: browser-risk-v2
   caution_max_fpr: 0.02
   block_max_fpr: 0.005
+  caution_min_recall: 0.90
+  block_min_recall: 0.80
   asymmetric_cost:
     cost_fn: 10.0
     cost_fp: 1.0
@@ -46,3 +48,25 @@ promotion_policy:
     operating_max_fpr: 0.005
   serving:
     max_model_p95_ms: 5.0
+
+release_gates:
+  ranking:
+    min_pr_auc: 0.90
+  block:
+    max_fpr: 0.005
+    min_recall: 0.80
+  caution:
+    max_fpr: 0.02
+    min_recall: 0.90
+  calibration:
+    max_ece: 0.05
+  latency:
+    max_model_p95_ms: 10.0
+    max_e2e_p95_ms: 50.0
+  integrity:
+    domain_overlap: 0
+    canonical_url_overlap: 0
+
+security_stress:
+  min_block_recall: 0.80
+  max_benign_block_rate: 0.20

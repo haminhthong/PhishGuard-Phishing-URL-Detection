@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 
 RESOURCES_DIR = Path(__file__).resolve().parents[2] / "resources"
-BRAND_TERMS_PATH = RESOURCES_DIR / "brand_terms.json"
-SHORTENER_DOMAINS_PATH = RESOURCES_DIR / "shortener_domains.json"
-SUSPICIOUS_TLDS_PATH = RESOURCES_DIR / "suspicious_tlds.json"
+BRAND_TERMS_FILENAME = "brand_terms.json"
+SHORTENER_DOMAINS_FILENAME = "shortener_domains.json"
+SUSPICIOUS_TLDS_FILENAME = "suspicious_tlds.json"
 
 
 def sha256_file(path: Path) -> str:
@@ -53,11 +53,14 @@ class ResourceBundle:
     tld_library_version: str
 
 
-def load_resource_bundle() -> ResourceBundle:
+def load_resource_bundle(resources_dir: Path = RESOURCES_DIR) -> ResourceBundle:
     """Nạp resource và fail-fast nếu thiếu, sai JSON hoặc sai schema."""
-    brand_data = _load_json(BRAND_TERMS_PATH)
-    shortener_data = _load_json(SHORTENER_DOMAINS_PATH)
-    tld_data = _load_json(SUSPICIOUS_TLDS_PATH)
+    brand_path = resources_dir / BRAND_TERMS_FILENAME
+    shortener_path = resources_dir / SHORTENER_DOMAINS_FILENAME
+    tld_path = resources_dir / SUSPICIOUS_TLDS_FILENAME
+    brand_data = _load_json(brand_path)
+    shortener_data = _load_json(shortener_path)
+    tld_data = _load_json(tld_path)
 
     brands = brand_data.get("brands")
     shorteners = shortener_data.get("shorteners")
@@ -87,9 +90,9 @@ def load_resource_bundle() -> ResourceBundle:
             "suspicious_tlds": str(tld_data["version"]),
         },
         hashes={
-            "brand_terms": sha256_file(BRAND_TERMS_PATH),
-            "shorteners": sha256_file(SHORTENER_DOMAINS_PATH),
-            "suspicious_tlds": sha256_file(SUSPICIOUS_TLDS_PATH),
+            "brand_terms": sha256_file(brand_path),
+            "shorteners": sha256_file(shortener_path),
+            "suspicious_tlds": sha256_file(tld_path),
         },
         tld_library_version=importlib.metadata.version("tld"),
     )

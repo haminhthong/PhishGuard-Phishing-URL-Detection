@@ -6,6 +6,7 @@ import ipaddress
 import math
 import re
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import ParseResult, urlparse
 
@@ -17,13 +18,10 @@ from .contract import (
     FEATURE_CONTRACT_V1,
     FEATURE_CONTRACT_V2,
     FEATURE_CONTRACT_V3,
+    FEATURE_CONTRACT_V4,
     FEATURE_CONTRACT_VERSION,
 )
-from .resources import RESOURCE_BUNDLE
-
-SUSPICIOUS_TLDS = set(RESOURCE_BUNDLE.suspicious_tlds)
-KNOWN_SHORTENERS = set(RESOURCE_BUNDLE.shorteners)
-KNOWN_BRANDS = list(RESOURCE_BUNDLE.brands)
+from .resources import RESOURCE_BUNDLE, ResourceBundle
 
 
 def parse_url(url: str) -> ParseResult:
@@ -56,15 +54,15 @@ def has_ip_address(url: str) -> int:
         return 0
 
 
-def uses_shortening_service(url: str) -> int:
+def uses_shortening_service(url: str, resources: ResourceBundle = RESOURCE_BUNDLE) -> int:
     """Trả 1 khi hostname thuộc danh sách dịch vụ rút gọn đã biết."""
     hostname = (parse_url(url).hostname or "").lower().rstrip(".")
     if hostname.startswith("www."):
         hostname = hostname[4:]
-    return int(hostname in KNOWN_SHORTENERS)
+    return int(hostname in resources.shorteners)
 
 
-def tld_info(url: str) -> tuple[int, int]:
+def tld_info(url: str, resources: ResourceBundle = RESOURCE_BUNDLE) -> tuple[int, int]:
     """Tính độ dài TLD và kiểm tra TLD có nằm trong nhóm có rủi ro cao (suspicious)."""
     try:
         tld_str = get_tld(url, fail_silently=True)
@@ -74,13 +72,13 @@ def tld_info(url: str) -> tuple[int, int]:
         return 0, 0
     tld_clean = str(tld_str).lower().strip(".")
     length = len(tld_clean)
-    is_suspicious = int(tld_clean in SUSPICIOUS_TLDS)
+    is_suspicious = int(tld_clean in resources.suspicious_tlds)
     return length, is_suspicious
 
 
-def tld_length(url: str) -> int:
+def tld_length(url: str, resources: ResourceBundle = RESOURCE_BUNDLE) -> int:
     """Tính độ dài TLD; trả 0 nếu không xác định được."""
-    return tld_info(url)[0]
+    return tld_info(url, resources)[0]
 
 
 def first_directory_length(url: str) -> int:
@@ -143,7 +141,12 @@ def get_subdomain_and_labels(url: str) -> tuple[int, int, int, str]:
     return subdomain_count, label_count, max_label_len, subdomain_part
 
 
-def detect_brand_abuse(url: str) -> tuple[int, int, int]:
+def detect_brand_abuse(
+    url: str,
+    resources: ResourceBundle = RESOURCE_BUNDLE,
+    *,
+    strict_brand_matching: bool = False,
+) -> tuple[int, int, int]:
     """
     Phát hiện tín hiệu mạo danh thương hiệu (Brand Impersonation):
     - brand_in_subdomain: Tên thương hiệu xuất hiện trong subdomain
@@ -170,15 +173,26 @@ def detect_brand_abuse(url: str) -> tuple[int, int, int]:
     brand_in_path = 0
     brand_not_reg = 0
 
-    for brand_info in KNOWN_BRANDS:
+    for brand_info in resources.brands:
         brand_name = brand_info["name"].lower()
         official_domains = [d.lower() for d in brand_info["official_domains"]]
 
-        in_sub = brand_name in subdomain_lower
-        in_path = bool(re.search(rf"(?:^|/|-|_){re.escape(brand_name)}(?:$|/|-|_|\.)", path_lower))
+        if strict_brand_matching:
+            subdomain_tokens = set(re.split(r"[^a-z0-9]+", subdomain_lower))
+            path_tokens = set(re.split(r"[^a-z0-9]+", path_lower))
+            in_sub = brand_name in subdomain_tokens
+            in_path = brand_name in path_tokens
+        else:
+            in_sub = brand_name in subdomain_lower
+            in_path = bool(
+                re.search(rf"(?:^|/|-|_|\.){re.escape(brand_name)}(?:$|/|-|_|\.)", path_lower)
+            )
 
         if in_sub or in_path:
-            is_official = any(reg_domain_clean == off or reg_domain_clean.endswith("." + off) for off in official_domains)
+            is_official = any(
+                reg_domain_clean == off or reg_domain_clean.endswith("." + off)
+                for off in official_domains
+            )
             if in_sub:
                 brand_in_sub = 1
             if in_path:
@@ -189,12 +203,12 @@ def detect_brand_abuse(url: str) -> tuple[int, int, int]:
     return brand_in_sub, brand_in_path, brand_not_reg
 
 
-def extract_features_v1(url: str) -> dict[str, int]:
+def extract_features_v1(url: str, resources: ResourceBundle = RESOURCE_BUNDLE) -> dict[str, int]:
     """Tạo đúng 12 đặc trưng theo hợp đồng lexical-v1 (Legacy)."""
-    tld_len, _ = tld_info(url)
+    tld_len, _ = tld_info(url, resources)
     features = {
         "Having_IP": has_ip_address(url),
-        "Tiny_URL": uses_shortening_service(url),
+        "Tiny_URL": uses_shortening_service(url, resources),
         "TLD_Length": tld_len,
         "Digit_Count": sum(character.isdigit() for character in url),
         "Dot_Count": url.count("."),
@@ -210,9 +224,14 @@ def extract_features_v1(url: str) -> dict[str, int]:
     return features
 
 
-def extract_features_v2(url: str) -> dict[str, int | float]:
+def extract_features_v2(
+    url: str,
+    resources: ResourceBundle = RESOURCE_BUNDLE,
+    *,
+    strict_brand_matching: bool = False,
+) -> dict[str, int | float]:
     """
-    Tạo 25 đặc trưng lexical-v2/v3 phân thành 4 nhóm:
+    Tạo 25 đặc trưng lexical-v2/v3/v4 phân thành 4 nhóm:
     A. Cấu trúc Lexical & Ratios
     B. Host & Domain
     C. Brand Impersonation
@@ -228,16 +247,16 @@ def extract_features_v2(url: str) -> dict[str, int | float]:
     path_len = len(path)
     query_len = len(query)
 
-    # Ratios
+    # Các tỷ lệ chuẩn hóa
     digits = sum(c.isdigit() for c in url)
     digit_ratio = round(digits / max(url_len, 1), 4)
 
     special_chars = sum(url.count(ch) for ch in (".", "-", "@", "%", "=", "/", "?", "_", "&"))
     special_char_ratio = round(special_chars / max(url_len, 1), 4)
 
-    # Domain & Host
+    # Tên miền và máy chủ
     subdomain_count, label_count, max_label_len, _ = get_subdomain_and_labels(url)
-    tld_len, is_suspicious = tld_info(url)
+    tld_len, is_suspicious = tld_info(url, resources)
 
     try:
         reg_domain = get_fld(url, fail_silently=True) or hostname
@@ -245,11 +264,13 @@ def extract_features_v2(url: str) -> dict[str, int | float]:
         reg_domain = hostname
     domain_len = len(reg_domain)
 
-    # Brand signals
-    brand_sub, brand_path, brand_not_reg = detect_brand_abuse(url)
+    # Tín hiệu mạo danh thương hiệu
+    brand_sub, brand_path, brand_not_reg = detect_brand_abuse(
+        url, resources, strict_brand_matching=strict_brand_matching
+    )
 
     features = {
-        # Group A: Lexical Structure
+        # Nhóm A: cấu trúc lexical
         "url_length": url_len,
         "hostname_length": host_len,
         "path_length": path_len,
@@ -262,7 +283,7 @@ def extract_features_v2(url: str) -> dict[str, int | float]:
         "at_count": url.count("@"),
         "path_depth": path_depth(url),
         "first_directory_length": first_directory_length(url),
-        # Group B: Host & Domain
+        # Nhóm B: máy chủ và tên miền
         "subdomain_count": subdomain_count,
         "hostname_label_count": label_count,
         "max_label_length": max_label_len,
@@ -271,12 +292,12 @@ def extract_features_v2(url: str) -> dict[str, int | float]:
         "domain_length": domain_len,
         "is_suspicious_tld": is_suspicious,
         "has_punycode": has_punycode(url),
-        # Group C: Brand Abuse
+        # Nhóm C: mạo danh thương hiệu
         "brand_in_subdomain": brand_sub,
         "brand_in_path": brand_path,
         "brand_not_registered_domain": brand_not_reg,
-        # Group D: Heuristics & Redirection
-        "uses_shortening_service": uses_shortening_service(url),
+        # Nhóm D: heuristic và chuyển hướng
+        "uses_shortening_service": uses_shortening_service(url, resources),
         "has_redirection_pattern": has_redirection_pattern(url),
     }
 
@@ -284,18 +305,37 @@ def extract_features_v2(url: str) -> dict[str, int | float]:
     return features
 
 
-def extract_features(url: str, contract: str = FEATURE_CONTRACT_VERSION) -> dict[str, Any]:
+def extract_features(
+    url: str,
+    contract: str = FEATURE_CONTRACT_VERSION,
+    resources: ResourceBundle = RESOURCE_BUNDLE,
+) -> dict[str, Any]:
     """
     Hàm trích xuất đặc trưng chính với cơ chế Fail-Fast bảo vệ an toàn runtime:
     - Nếu contract là FEATURE_CONTRACT_V1: trả về 12 đặc trưng legacy.
-    - Nếu contract là FEATURE_CONTRACT_V2: trả về 25 đặc trưng canonical.
+    - Nếu contract là FEATURE_CONTRACT_V2/V3: trả về 25 đặc trưng legacy/canonical.
+    - Nếu contract là FEATURE_CONTRACT_V4: trả về 25 đặc trưng với brand matching theo token.
     - Nếu contract không hợp lệ: LẬP TỨC crash bằng ValueError, không đoán mò hay fallback ngầm.
     """
     if contract == FEATURE_CONTRACT_V1:
-        return extract_features_v1(url)
+        return extract_features_v1(url, resources)
     if contract in {FEATURE_CONTRACT_V2, FEATURE_CONTRACT_V3}:
-        return extract_features_v2(url)
+        return extract_features_v2(url, resources)
+    if contract == FEATURE_CONTRACT_V4:
+        return extract_features_v2(url, resources, strict_brand_matching=True)
     raise ValueError(
         f"Unsupported feature contract: '{contract}'. "
-        f"Only supported contracts are: {[FEATURE_CONTRACT_V1, FEATURE_CONTRACT_V2, FEATURE_CONTRACT_V3]}"
+        f"Only supported contracts are: {[FEATURE_CONTRACT_V1, FEATURE_CONTRACT_V2, FEATURE_CONTRACT_V3, FEATURE_CONTRACT_V4]}"
     )
+
+
+@dataclass(frozen=True)
+class FeatureExtractor:
+    """Extractor gắn với contract và resource của đúng release đang chạy."""
+
+    contract: str = FEATURE_CONTRACT_VERSION
+    resources: ResourceBundle = RESOURCE_BUNDLE
+
+    def extract(self, url: str) -> dict[str, Any]:
+        """Trích xuất feature bằng resource đã đóng băng, không đọc global runtime."""
+        return extract_features(url, contract=self.contract, resources=self.resources)

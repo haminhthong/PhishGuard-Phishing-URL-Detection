@@ -17,7 +17,9 @@ class AdversarialEvasionTests(unittest.TestCase):
         url = "https://google.com@attacker-controlled-site.com/auth"
         f = extract_features_v2(url)
         self.assertEqual(f["at_count"], 1)
-        self.assertEqual(f["brand_not_registered_domain"], 0)  # hostname is attacker-controlled-site.com
+        self.assertEqual(
+            f["brand_not_registered_domain"], 0
+        )  # hostname is attacker-controlled-site.com
 
     def test_deceptive_subdomain_abuse(self) -> None:
         """Kiểm tra lạm dụng chuỗi subdomain sâu để giả mạo PayPal."""

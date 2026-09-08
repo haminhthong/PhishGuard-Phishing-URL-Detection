@@ -9,11 +9,9 @@ from typing import Any
 
 @dataclass
 class CalibrationArtifact:
-    """Artifact lưu trữ toàn bộ tham số hiệu chuẩn và kết quả kiểm toán ECE/Brier."""
+    """Artifact chỉ lưu calibrator và metric; threshold thuộc ActionPolicy."""
 
     method: str
-    threshold: float
-    target_fpr: float
     ece_before: float
     ece_after: float
     brier_before: float
@@ -27,8 +25,6 @@ class CalibrationArtifact:
     def from_dict(cls, data: dict[str, Any]) -> CalibrationArtifact:
         return cls(
             method=str(data.get("method", "isotonic")),
-            threshold=float(data.get("threshold", 0.5)),
-            target_fpr=float(data.get("target_fpr", 0.005)),
             ece_before=float(data.get("ece_before", 0.0)),
             ece_after=float(data.get("ece_after", 0.0)),
             brier_before=float(data.get("brier_before", 0.0)),
@@ -84,7 +80,9 @@ class ActionPolicy:
             raise ValueError("Action policy thiếu caution_threshold hoặc block_threshold")
         actions = data.get("actions", {})
         expected_actions = {"low": "allow", "medium": "caution", "high": "block"}
-        if actions and any(actions.get(level, action) != action for level, action in expected_actions.items()):
+        if actions and any(
+            actions.get(level, action) != action for level, action in expected_actions.items()
+        ):
             raise ValueError("Action policy phải ánh xạ low/medium/high thành allow/caution/block")
         return cls(
             caution_threshold=float(caution),

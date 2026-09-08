@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import time
+from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import yaml
 from xgboost import XGBClassifier
 
 from phishguard.calibration import ActionPolicy, ProbabilityCalibrator
@@ -17,9 +20,11 @@ from phishguard.features import (
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
     FEATURE_COLUMNS_V3,
+    FEATURE_COLUMNS_V4,
     FEATURE_CONTRACT_V2,
-    extract_features,
+    FeatureExtractor,
 )
+from phishguard.features.resources import load_resource_bundle
 from phishguard.training.evaluation import classification_metrics
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -27,11 +32,26 @@ if hasattr(sys.stdout, "reconfigure"):
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SPLITS_DIR = PROJECT_ROOT / "artifacts" / "splits"
-ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
-MODELS_DIR = ARTIFACTS_DIR / "models"
-PROD_JSON = MODELS_DIR / "production.json"
-TEST_REPORT_JSON = ARTIFACTS_DIR / "test_evaluation_report.json"
-ERROR_ANALYSIS_JSON = ARTIFACTS_DIR / "error_analysis_report.json"
+RELEASES_DIR = PROJECT_ROOT / "releases"
+CANDIDATES_DIR = RELEASES_DIR / "candidates"
+REPORTS_DIR = PROJECT_ROOT / "reports"
+
+
+def sha256_file(path: Path) -> str:
+    """Tính checksum artifact để gắn lineage cho evaluation report."""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_hash(path: Path, expected: str | None, name: str) -> str:
+    """Fail-closed nếu artifact evaluation không khớp metadata."""
+    actual = sha256_file(path)
+    if not expected or actual.lower() != str(expected).lower():
+        raise ValueError(f"Checksum {name} không khớp metadata")
+    return actual
 
 
 def load_split(name: str) -> pd.DataFrame:
@@ -54,6 +74,7 @@ def measure_detailed_latencies(
     sample_urls: list[str],
     contract: str,
     feature_cols: tuple[str, ...],
+    extractor: FeatureExtractor,
     num_runs: int = 50,
 ) -> dict[str, float]:
     """Đo tách bạch độ trễ từng công đoạn: feature extraction, model inference, risk policy, E2E."""
@@ -64,19 +85,19 @@ def measure_detailed_latencies(
         for u in sample_slice:
             t0 = time.perf_counter()
 
-            # 1. Feature extraction
+            # 1. Trích xuất đặc trưng
             t_feat_start = time.perf_counter()
-            features = extract_features(u, contract=contract)
+            features = extractor.extract(u)
             frame = pd.DataFrame([features], columns=feature_cols)
             t_feat_end = time.perf_counter()
 
-            # 2. Model inference
+            # 2. Suy luận mô hình
             t_mod_start = time.perf_counter()
             raw_prob = float(model.predict_proba(frame)[0, 1])
             cal_prob = float(calibrator.calibrate(raw_prob))
             t_mod_end = time.perf_counter()
 
-            # 3. Risk policy
+            # 3. Đánh giá policy rủi ro
             t_pol_start = time.perf_counter()
             _, _ = action_policy.evaluate(cal_prob)
             t_pol_end = time.perf_counter()
@@ -105,10 +126,10 @@ def evaluate_hard_slices(
     features_df: pd.DataFrame,
     y_true: np.ndarray,
     y_scores: np.ndarray,
-    operating_threshold: float,
+    block_threshold: float,
 ) -> dict[str, Any]:
     """Đánh giá chi tiết trên các lát cắt hard cases (Hard Slices Evaluation)."""
-    y_preds = (y_scores >= operating_threshold).astype(int)
+    y_preds = (y_scores >= block_threshold).astype(int)
 
     shared_domains = {
         "google.com",
@@ -238,85 +259,101 @@ def analyze_errors(
     }
 
 
-def main() -> None:
+def resolve_candidate_dir(release_dir: Path | None = None) -> Path:
+    """Chỉ resolve candidate; không đánh giá active production pointer."""
+    if release_dir is not None:
+        return release_dir
+    config_path = PROJECT_ROOT / "configs" / "train_config.yaml"
+    with config_path.open(encoding="utf-8") as file:
+        config = yaml.safe_load(file) or {}
+    version = str(config.get("model_version", "4.0.0"))
+    return CANDIDATES_DIR / f"phishguard-{version}"
+
+
+def main(release_dir: Path | None = None) -> None:
     print("=" * 70)
-    print(" 🧪 Bắt đầu Đánh giá Độc lập Duy nhất 1 Lần trên Tập Test (Report Only)...")
+    print(" 🧪 Đánh giá Locked Test cho release candidate (không tự promote)...")
     print("=" * 70)
 
-    # 1. Xác định Active Model Directory
-    if PROD_JSON.exists():
-        with open(PROD_JSON, encoding="utf-8") as f:
-            pointer = json.load(f)
-        active_version = pointer.get("active_version", "phishguard-3.2.0")
-        model_dir = PROJECT_ROOT / pointer.get("model_dir", f"artifacts/models/{active_version}")
-    else:
-        # Fallback to standard model directory
-        model_dir = MODELS_DIR / "phishguard-3.2.0"
-        if not model_dir.exists():
-            model_dir = ARTIFACTS_DIR
+    # 1. Chỉ nạp candidate đã freeze; production pointer không được dùng để tìm test score.
+    model_dir = resolve_candidate_dir(release_dir)
+    if not model_dir.is_dir():
+        raise FileNotFoundError(
+            f"Không tìm thấy release candidate tại {model_dir}. Hãy chạy scripts/train.py trước."
+        )
 
     print(f" Nạp mô hình từ: {model_dir}")
     model_json_path = model_dir / "model.json"
-    if not model_json_path.exists():
-        model_json_path = model_dir / "XGB.json"
 
     if not model_json_path.exists():
         raise FileNotFoundError(
             f"Không tìm thấy file mô hình tại {model_json_path}. Vui lòng chạy scripts/train.py trước."
         )
 
-    # 2. Nạp Model và Metadata
+    # 2. Nạp model và metadata
     model = XGBClassifier()
     model.load_model(model_json_path)
 
     metadata = {}
     meta_path = model_dir / "metadata.json"
     if not meta_path.exists():
-        meta_path = ARTIFACTS_DIR / "model_metadata.json"
-    if meta_path.exists():
-        with open(meta_path, encoding="utf-8") as f:
-            metadata = json.load(f)
+        raise FileNotFoundError(f"Thiếu metadata.json trong release: {model_dir}")
+    with open(meta_path, encoding="utf-8") as f:
+        metadata = json.load(f)
+    if not metadata.get("release_id"):
+        raise ValueError("Candidate metadata thiếu release_id")
 
     policy_path = model_dir / "action_policy.json"
     if not policy_path.exists():
         raise FileNotFoundError(f"Thiếu action_policy.json trong release: {model_dir}")
     with policy_path.open(encoding="utf-8") as f:
         action_policy = ActionPolicy.from_dict(json.load(f))
-    operating_threshold = action_policy.block_threshold
+    block_threshold = action_policy.block_threshold
     feature_contract = metadata.get("feature_contract", FEATURE_CONTRACT_V2)
     feature_cols = {
         "lexical-v1": FEATURE_COLUMNS_V1,
         FEATURE_CONTRACT_V2: FEATURE_COLUMNS_V2,
         "lexical-v3": FEATURE_COLUMNS_V3,
+        "lexical-v4": FEATURE_COLUMNS_V4,
     }[feature_contract]
 
+    resource_dir = model_dir / "resources"
+    if not resource_dir.is_dir():
+        raise FileNotFoundError(f"Candidate thiếu resource bundle: {resource_dir}")
+    resource_bundle = load_resource_bundle(resource_dir)
+    extractor = FeatureExtractor(feature_contract, resource_bundle)
+
     # Calibration là artifact bắt buộc; không chạy raw score khi thiếu file.
-    calibrator = None
     calib_path = model_dir / "calibration.json"
     if not calib_path.exists():
         raise FileNotFoundError(f"Thiếu calibration.json trong release: {model_dir}")
     with calib_path.open(encoding="utf-8") as f:
         calib_data = json.load(f)
+    model_hash = verify_hash(model_json_path, metadata.get("model_sha256"), "model")
+    calibration_hash = verify_hash(calib_path, metadata.get("calibration_sha256"), "calibration")
+    action_policy_hash = verify_hash(
+        policy_path, metadata.get("action_policy_sha256"), "action_policy"
+    )
     calibrator = ProbabilityCalibrator(
         method=calib_data["method"],
         params=calib_data["calibrator_params"],
     )
 
-    print(f" Loaded Operating Threshold: {operating_threshold}")
+    print(f" Loaded Block Threshold:      {block_threshold}")
     print(f" Loaded Feature Contract:    {feature_contract} ({len(feature_cols)} features)")
     print(f" Loaded Action Policy:       {action_policy.to_dict()}")
     print(f" Loaded Calibrator:          {calibrator.method} (is_fitted={calibrator.is_fitted})")
 
-    # 3. Tải tập Test
+    # 3. Tải tập Locked Test
     test_df = load_split("test")
     url_col = "raw_url" if "raw_url" in test_df.columns else "url"
     print(
         f" Test dataset size: {len(test_df):,} rows ({test_df['domain'].nunique():,} unique domains)"
     )
 
-    # 4. Trích xuất đặc trưng cho tập Test
+    # 4. Trích xuất đặc trưng cho Locked Test
     print(f" Extracting {len(feature_cols)} features ({feature_contract}) from {url_col}...")
-    features_list = [extract_features(u, contract=feature_contract) for u in test_df[url_col]]
+    features_list = [extractor.extract(u) for u in test_df[url_col]]
     X_test = pd.DataFrame(features_list, columns=feature_cols)
     y_test = test_df["label"].values
 
@@ -324,7 +361,7 @@ def main() -> None:
     print(" Computing calibrated inference predictions...")
     raw_scores = model.predict_proba(X_test)[:, 1]
     calibrated_scores = calibrator.calibrate(raw_scores)
-    y_preds = (calibrated_scores >= operating_threshold).astype(int)
+    y_preds = (calibrated_scores >= block_threshold).astype(int)
 
     metrics = classification_metrics(y_test, y_preds, calibrated_scores)
     policy_metrics = {
@@ -336,7 +373,7 @@ def main() -> None:
         "block": metrics,
     }
 
-    # 6. Đo tách bạch độ trễ (Latency Breakdown)
+    # 6. Đo tách bạch độ trễ
     print(" Measuring fine-grained latency breakdown (Feature extraction, Model, Policy, E2E)...")
     lat_breakdown = measure_detailed_latencies(
         model=model,
@@ -345,46 +382,64 @@ def main() -> None:
         sample_urls=test_df[url_col].tolist(),
         contract=feature_contract,
         feature_cols=feature_cols,
+        extractor=extractor,
         num_runs=30,
     )
     metrics.update(lat_breakdown)
 
-    # 7. Đánh giá Granular Hard Slices
+    # 7. Đánh giá các hard slice chi tiết
     print(" Evaluating granular performance on critical hard slices...")
     slice_evaluation = evaluate_hard_slices(
         test_df=test_df,
         features_df=X_test,
         y_true=y_test,
         y_scores=calibrated_scores,
-        operating_threshold=operating_threshold,
+        block_threshold=block_threshold,
     )
 
-    # 8. Phân tích lỗi (Error Analysis)
+    # 8. Phân tích lỗi
     print(" Running granular error analysis on False Positives and False Negatives...")
     error_analysis = analyze_errors(test_df, X_test, y_test, y_preds, calibrated_scores)
 
+    split_manifest_path = model_dir / "split_manifest.json"
+    split_hash = sha256_file(split_manifest_path) if split_manifest_path.is_file() else None
+    evaluation_run_id = (
+        f"eval-{metadata.get('model_version', model_dir.name)}-{sha256_file(model_json_path)[:12]}"
+    )
     test_report = {
+        "evaluation_run_id": evaluation_run_id,
+        "release": metadata.get("release_id", metadata.get("model_tag", model_dir.name)),
         "dataset_name": "Test Set (Domain-Grouped Split, Zero Leakage)",
         "test_size_rows": len(test_df),
         "test_unique_domains": test_df["domain"].nunique(),
         "model_type": type(model).__name__,
-        "model_version": metadata.get("model_version", "3.2.0"),
+        "model_version": metadata.get("model_version", "4.0.0"),
         "feature_contract": feature_contract,
-        "operating_threshold": operating_threshold,
+        "locked_test": True,
         "metrics": metrics,
         "policy_metrics": policy_metrics,
         "action_policy": action_policy.to_dict(),
+        "artifact_hashes": {
+            "model": model_hash,
+            "calibration": calibration_hash,
+            "action_policy": action_policy_hash,
+            "feature_contract": metadata.get("feature_contract_hash"),
+            "resources": resource_bundle.hashes,
+        },
+        "split_manifest_sha256": split_hash,
         "hard_slices": slice_evaluation,
         "latency_breakdown": lat_breakdown,
     }
 
-    with open(TEST_REPORT_JSON, "w", encoding="utf-8") as f:
+    release_report_dir = REPORTS_DIR / str(metadata.get("model_version", model_dir.name))
+    release_report_dir.mkdir(parents=True, exist_ok=True)
+    with (release_report_dir / "locked_test_metrics.json").open("w", encoding="utf-8") as f:
         json.dump(test_report, f, indent=2, ensure_ascii=False)
 
-    with open(ERROR_ANALYSIS_JSON, "w", encoding="utf-8") as f:
+    with (release_report_dir / "error_analysis.json").open("w", encoding="utf-8") as f:
         json.dump(error_analysis, f, indent=2, ensure_ascii=False)
 
-    # Lưu bản sao evaluation.json vào thư mục version của model
+    # Lưu bản sao evaluation.json vào thư mục candidate theo version
     if model_dir.is_dir():
         with open(model_dir / "evaluation.json", "w", encoding="utf-8") as f:
             json.dump(test_report, f, indent=2, ensure_ascii=False)
@@ -413,11 +468,14 @@ def main() -> None:
         f" • Full End-to-End Latency:    p50={lat_breakdown['total_e2e_p50_ms']} ms | p95={lat_breakdown['total_e2e_p95_ms']} ms"
     )
     print("=" * 70)
-    print(f" [OK] Báo cáo đánh giá đã lưu: {TEST_REPORT_JSON}")
-    print(f" [OK] Phân tích lỗi đã lưu:     {ERROR_ANALYSIS_JSON}")
+    print(f" [OK] Báo cáo locked test đã lưu: {release_report_dir / 'locked_test_metrics.json'}")
+    print(f" [OK] Phân tích lỗi đã lưu:        {release_report_dir / 'error_analysis.json'}")
     if (model_dir / "evaluation.json").exists():
         print(f" [OK] Báo cáo versioned đã lưu: {model_dir / 'evaluation.json'}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser(description="Đánh giá locked test cho một release candidate.")
+    parser.add_argument("--release-dir", type=Path, help="Thư mục candidate cần đánh giá.")
+    args = parser.parse_args()
+    main(args.release_dir)

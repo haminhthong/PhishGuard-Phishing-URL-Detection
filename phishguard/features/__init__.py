@@ -5,12 +5,15 @@ from .contract import (
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
     FEATURE_COLUMNS_V3,
+    FEATURE_COLUMNS_V4,
     FEATURE_CONTRACT_V1,
     FEATURE_CONTRACT_V2,
     FEATURE_CONTRACT_V3,
+    FEATURE_CONTRACT_V4,
     FEATURE_CONTRACT_VERSION,
 )
 from .extractor import (
+    FeatureExtractor,
     calculate_entropy,
     detect_brand_abuse,
     extract_features,
@@ -33,9 +36,11 @@ __all__ = [
     "FEATURE_COLUMNS_V1",
     "FEATURE_COLUMNS_V2",
     "FEATURE_COLUMNS_V3",
+    "FEATURE_COLUMNS_V4",
     "FEATURE_CONTRACT_V1",
     "FEATURE_CONTRACT_V2",
     "FEATURE_CONTRACT_V3",
+    "FEATURE_CONTRACT_V4",
     "FEATURE_CONTRACT_VERSION",
     "calculate_entropy",
     "detect_brand_abuse",
@@ -52,4 +57,5 @@ __all__ = [
     "tld_info",
     "tld_length",
     "uses_shortening_service",
+    "FeatureExtractor",
 ]

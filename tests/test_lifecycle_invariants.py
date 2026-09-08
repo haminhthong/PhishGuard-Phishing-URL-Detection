@@ -17,11 +17,14 @@ from phishguard.calibration import (
     CalibrationArtifact,
     ProbabilityCalibrator,
     RiskPolicyConfig,
+    select_action_policy,
     sweep_operating_threshold,
 )
 from phishguard.features import (
     FEATURE_COLUMNS_V2,
+    FEATURE_COLUMNS_V4,
     FEATURE_CONTRACT_V2,
+    FEATURE_CONTRACT_V4,
     extract_features,
 )
 from phishguard.training.data import (
@@ -52,14 +55,16 @@ class LifecycleInvariantsTests(unittest.TestCase):
         """
         Bất biến 2 (P0.2): Chỉ loại bỏ khi EXACT canonical URL có nhãn mâu thuẫn (cùng URL mang cả 0 và 1).
         """
-        frame = pd.DataFrame({
-            "url": [
-                "https://legit-site.com/welcome",
-                "https://conflict-url.com/login",
-                "https://conflict-url.com/login",  # exact canonical url conflict
-            ],
-            "label": [0, 0, 1],
-        })
+        frame = pd.DataFrame(
+            {
+                "url": [
+                    "https://legit-site.com/welcome",
+                    "https://conflict-url.com/login",
+                    "https://conflict-url.com/login",  # exact canonical url conflict
+                ],
+                "label": [0, 0, 1],
+            }
+        )
         cleaned = clean_dataset(frame)
         self.assertEqual(cleaned["url"].tolist(), ["https://legit-site.com/welcome"])
         self.assertNotIn("https://conflict-url.com/login", cleaned["url"].tolist())
@@ -69,15 +74,17 @@ class LifecycleInvariantsTests(unittest.TestCase):
         Bất biến 3 (P0.2): Registered domain chứa cả legitimate và phishing URLs khác nhau
         (như google.com, dropbox.com, wix.com) KHÔNG ĐƯỢC PHÉP bị loại bỏ toàn bộ domain.
         """
-        frame = pd.DataFrame({
-            "url": [
-                "https://docs.google.com/document/d/123/edit",         # Legit (0)
-                "https://docs.google.com/forms/d/e/fake-login/view",   # Phish (1)
-                "https://www.dropbox.com/s/safe123/document.pdf",      # Legit (0)
-                "https://www.dropbox.com/s/phish456/login.html",       # Phish (1)
-            ],
-            "label": [0, 1, 0, 1],
-        })
+        frame = pd.DataFrame(
+            {
+                "url": [
+                    "https://docs.google.com/document/d/123/edit",  # Legit (0)
+                    "https://docs.google.com/forms/d/e/fake-login/view",  # Phish (1)
+                    "https://www.dropbox.com/s/safe123/document.pdf",  # Legit (0)
+                    "https://www.dropbox.com/s/phish456/login.html",  # Phish (1)
+                ],
+                "label": [0, 1, 0, 1],
+            }
+        )
         cleaned = clean_dataset(frame)
         # Toàn bộ 4 URLs đều phải được giữ lại vì khác nhau về path/canonical url
         self.assertEqual(len(cleaned), 4)
@@ -160,8 +167,6 @@ class LifecycleInvariantsTests(unittest.TestCase):
         """
         artifact = CalibrationArtifact(
             method="isotonic",
-            threshold=0.57,
-            target_fpr=0.005,
             ece_before=0.042,
             ece_after=0.018,
             brier_before=0.035,
@@ -172,8 +177,8 @@ class LifecycleInvariantsTests(unittest.TestCase):
         loaded = CalibrationArtifact.from_dict(as_dict)
 
         self.assertEqual(loaded.method, "isotonic")
-        self.assertEqual(loaded.threshold, 0.57)
         self.assertEqual(loaded.ece_after, 0.018)
+        self.assertNotIn("threshold", as_dict)
 
     def test_non_xgb_champion_cannot_silently_export_as_xgb(self) -> None:
         """
@@ -181,6 +186,7 @@ class LifecycleInvariantsTests(unittest.TestCase):
         không được phép tự động export dưới dạng XGBoost Native JSON nếu thiếu adapter.
         """
         from sklearn.ensemble import RandomForestClassifier
+
         rf = RandomForestClassifier()
         # Random Forest không có phương thức native save_model của XGBoost
         self.assertFalse(hasattr(rf, "save_model"))
@@ -203,6 +209,8 @@ class LifecycleInvariantsTests(unittest.TestCase):
         """
         self.assertEqual(len(FEATURE_COLUMNS_V2), 25)
         self.assertEqual(FEATURE_CONTRACT_V2, "lexical-v2")
+        self.assertEqual(len(FEATURE_COLUMNS_V4), 25)
+        self.assertEqual(FEATURE_CONTRACT_V4, "lexical-v4")
 
     def test_risk_threshold_order(self) -> None:
         """
@@ -227,11 +235,27 @@ class LifecycleInvariantsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             policy.evaluate(float("nan"))
 
+    def test_action_policy_selects_compatible_threshold_pair(self) -> None:
+        """Bất biến P0: caution và block phải đạt gate đồng thời và có thứ tự hợp lệ."""
+        y_true = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+        scores = np.array([0.01, 0.02, 0.03, 0.04, 0.80, 0.85, 0.90, 0.95])
+        selection = select_action_policy(
+            y_true,
+            scores,
+            caution_max_fpr=0.25,
+            block_max_fpr=0.01,
+            caution_min_recall=0.90,
+            block_min_recall=0.80,
+        )
+        policy = selection["policy"]
+        self.assertLess(policy["caution_threshold"], policy["block_threshold"])
+        self.assertGreaterEqual(selection["caution_metrics"]["recall"], 0.90)
+        self.assertGreaterEqual(selection["block_metrics"]["recall"], 0.80)
+
     def test_five_way_split_is_group_safe_and_stratified(self) -> None:
         """Bất biến P0: 5 split không leak domain và giữ prior gần nhau."""
         rows = [
-            {"url": f"https://domain-{index}.org/path", "label": index % 2}
-            for index in range(200)
+            {"url": f"https://domain-{index}.org/path", "label": index % 2} for index in range(200)
         ]
         splits = split_by_domain_5way(pd.DataFrame(rows), random_state=42)
         frames = [
@@ -252,11 +276,13 @@ class LifecycleInvariantsTests(unittest.TestCase):
         """
         Bất biến 13: Protocol B chia tập theo thời gian bảo toàn tính thứ tự thời gian.
         """
-        frame = pd.DataFrame({
-            "url": [f"https://domain-{i}.com/path" for i in range(10)],
-            "submission_time": [f"2025-01-{i+1:02d}T00:00:00Z" for i in range(10)],
-            "label": [1] * 10,
-        })
+        frame = pd.DataFrame(
+            {
+                "url": [f"https://domain-{i}.com/path" for i in range(10)],
+                "submission_time": [f"2025-01-{i + 1:02d}T00:00:00Z" for i in range(10)],
+                "label": [1] * 10,
+            }
+        )
         splits = temporal_split_protocol_b(frame, test_ratio=0.30)
         self.assertEqual(len(splits.train), 7)
         self.assertEqual(len(splits.test), 3)

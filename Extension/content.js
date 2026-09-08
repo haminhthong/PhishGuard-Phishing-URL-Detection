@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const warningUrl = new URL(chrome.runtime.getURL("warning.html"));
         warningUrl.searchParams.set("url", message.url || window.location.href);
 
-        const scoreVal = typeof message.model_score === "number" ? message.model_score : message.confidence;
+        const scoreVal = message.risk_score;
         if (typeof scoreVal === "number") {
             warningUrl.searchParams.set("score", String(scoreVal));
             warningUrl.searchParams.set("confidence", String(scoreVal));
@@ -33,4 +33,3 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     return false;
 });
-

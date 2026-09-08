@@ -1,8 +1,9 @@
 """Hợp đồng đặc trưng dùng chung giữa training và serving.
 
 `lexical-v3` giữ nguyên 25 cột của v2 để không làm thay đổi semantics mô hình,
-nhưng đóng băng thêm phiên bản của các tài nguyên bên ngoài. Vì vậy việc nâng
-version không tự ý tạo thêm feature hoặc làm thay đổi thứ tự cột.
+nhưng đóng băng thêm phiên bản của các tài nguyên bên ngoài. `lexical-v4` giữ
+nguyên số cột nhưng khóa semantics brand matching theo token/label để tránh
+false positive như `pineapple.example.com`.
 """
 
 from __future__ import annotations
@@ -63,7 +64,11 @@ FEATURE_COLUMNS_V2: tuple[str, ...] = (
 FEATURE_CONTRACT_V3 = "lexical-v3"
 FEATURE_COLUMNS_V3: tuple[str, ...] = FEATURE_COLUMNS_V2
 
+# V4 thay đổi semantics nhận diện brand nhưng giữ nguyên số lượng/thứ tự cột.
+FEATURE_CONTRACT_V4 = "lexical-v4"
+FEATURE_COLUMNS_V4: tuple[str, ...] = FEATURE_COLUMNS_V2
+
 # Hợp đồng mặc định mới cho pipeline huấn luyện. Artifact lexical-v2 cũ vẫn
 # được loader hỗ trợ để có thể rollback an toàn.
-FEATURE_CONTRACT_VERSION = FEATURE_CONTRACT_V3
-FEATURE_COLUMNS = FEATURE_COLUMNS_V3
+FEATURE_CONTRACT_VERSION = FEATURE_CONTRACT_V4
+FEATURE_COLUMNS = FEATURE_COLUMNS_V4

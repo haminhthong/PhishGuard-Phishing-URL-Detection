@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from dataclasses import asdict
@@ -100,23 +101,51 @@ def main() -> None:
         random_state=random_seed,
     )
     split_manifest = {
+        "split_version": "domain-5way-v2",
         "seed": random_seed,
         "strategy": "stratified-registered-domain-5way",
+        "source_dataset_sha256": hashlib.sha256(
+            json.dumps(dataset_manifest.source_checksums, sort_keys=True).encode("utf-8")
+        ).hexdigest(),
         "target_proportions": proportions,
         "splits": {},
     }
     for name in SPLIT_NAMES:
         split = getattr(splits, name)
-        split_manifest["splits"][name] = {
+        stats = {
             "rows": int(len(split)),
             "domains": int(split["domain"].nunique()),
             "positive_rate": round(float(split["label"].mean()), 6),
         }
+        canonical_name = {
+            "validation": "development",
+            "test": "locked_test",
+        }.get(name, name)
+        split_manifest["splits"][canonical_name] = stats
         print(
             f" • {name:18s}: {len(split):,} rows | "
             f"{split['domain'].nunique():,} domains | positive={split['label'].mean():.2%}"
         )
         save_split_dataframe(split, SPLITS_DIR / name)
+
+    domain_sets = [set(getattr(splits, name)["domain"]) for name in SPLIT_NAMES]
+    url_sets = [set(getattr(splits, name)["canonical_url"]) for name in SPLIT_NAMES]
+    split_manifest["domain_overlap"] = int(
+        sum(
+            len(left.intersection(right))
+            for i, left in enumerate(domain_sets)
+            for right in domain_sets[i + 1 :]
+        )
+    )
+    split_manifest["canonical_url_overlap"] = int(
+        sum(
+            len(left.intersection(right))
+            for i, left in enumerate(url_sets)
+            for right in url_sets[i + 1 :]
+        )
+    )
+    if split_manifest["domain_overlap"] or split_manifest["canonical_url_overlap"]:
+        raise AssertionError("Split manifest phát hiện overlap domain hoặc canonical URL")
 
     (ARTIFACTS_DIR / "split_manifest.json").write_text(
         json.dumps(split_manifest, indent=2, ensure_ascii=False), encoding="utf-8"

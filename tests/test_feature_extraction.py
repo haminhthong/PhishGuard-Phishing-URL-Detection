@@ -2,6 +2,7 @@
 Bộ kiểm thử tự động cho module trích xuất đặc trưng URL PhishGuard ML.
 Tích hợp kiểm tra fixture hợp đồng đặc trưng tests/fixtures/feature_contract.json.
 """
+
 from __future__ import annotations
 
 import json
@@ -30,7 +31,9 @@ class FeatureExtractionTests(unittest.TestCase):
         self.assertEqual(len(features), 25)
 
         # Legacy v1 kiểm tra rõ ràng
-        features_v1 = extract_features("https://example.com/account/login?id=123", contract="lexical-v1")
+        features_v1 = extract_features(
+            "https://example.com/account/login?id=123", contract="lexical-v1"
+        )
         self.assertEqual(len(features_v1), 12)
 
     def test_detects_ip_address_hostname(self) -> None:
@@ -51,7 +54,9 @@ class FeatureExtractionTests(unittest.TestCase):
 
     def test_golden_feature_contract_fixtures(self) -> None:
         """Kiểm tra toàn bộ 23 mẫu URL trong tests/fixtures/feature_contract.json theo hợp đồng v1."""
-        self.assertTrue(FEATURE_FIXTURE_PATH.exists(), f"Không tìm thấy fixture file {FEATURE_FIXTURE_PATH}")
+        self.assertTrue(
+            FEATURE_FIXTURE_PATH.exists(), f"Không tìm thấy fixture file {FEATURE_FIXTURE_PATH}"
+        )
         with open(FEATURE_FIXTURE_PATH, encoding="utf-8") as f:
             fixtures = json.load(f)
 
@@ -135,6 +140,16 @@ class FeatureExtractionTests(unittest.TestCase):
         f_google = extract_features_v2(phish_google_path)
         self.assertEqual(f_google["brand_in_path"], 1)
         self.assertEqual(f_google["brand_not_registered_domain"], 1)
+
+        # V4 phải tránh false positive substring: "pineapple" không phải token "apple".
+        pineapple = extract_features_v2(
+            "https://pineapple.example.com/login", strict_brand_matching=True
+        )
+        self.assertEqual(pineapple["brand_in_subdomain"], 0)
+        self.assertEqual(pineapple["brand_not_registered_domain"], 0)
+
+        v4 = extract_features("https://pineapple.example.com/login", contract="lexical-v4")
+        self.assertEqual(v4["brand_in_subdomain"], 0)
 
     def test_punycode_and_suspicious_tld_features(self) -> None:
         """Kiểm tra nhận diện punycode và tên miền TLD đáng ngờ."""

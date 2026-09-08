@@ -54,9 +54,8 @@ coverage.xml
 Data/*.csv
 artifacts/splits/
 
-# Dữ liệu raw và split sinh ra là input cục bộ, không commit vào release.
-Data/*.csv
-artifacts/splits/
+# Candidate có thể lớn; chỉ commit code, manifest mẫu và report đã chọn.
+releases/candidates/*/model.json
 
 # IDE files
 .vscode/

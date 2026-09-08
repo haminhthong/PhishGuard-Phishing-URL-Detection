@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import pandas as pd
 
@@ -15,11 +16,15 @@ from phishguard.features import (
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
     FEATURE_COLUMNS_V3,
-    extract_features,
+    FEATURE_COLUMNS_V4,
 )
 
 LOGGER = logging.getLogger("phishguard.api.predictor")
-LABEL_NAMES = {0: "Low lexical phishing risk", 1: "High lexical phishing risk"}
+ACTION_REASONS = {
+    "allow": "LEXICAL_RISK_BELOW_CAUTION_THRESHOLD",
+    "caution": "LEXICAL_RISK_ABOVE_CAUTION_THRESHOLD",
+    "block": "LEXICAL_RISK_ABOVE_BLOCK_THRESHOLD",
+}
 
 
 def safe_log_host(url: str) -> str:
@@ -36,6 +41,7 @@ class PredictorService:
         self.model = loaded_model.model
         self.calibrator = loaded_model.calibrator
         self.action_policy = loaded_model.action_policy
+        self.feature_extractor = loaded_model.feature_extractor
         self.cache = cache
         self.model_version = loaded_model.model_version
         self.policy_version = loaded_model.policy_version
@@ -44,6 +50,7 @@ class PredictorService:
             "lexical-v1": FEATURE_COLUMNS_V1,
             "lexical-v2": FEATURE_COLUMNS_V2,
             "lexical-v3": FEATURE_COLUMNS_V3,
+            "lexical-v4": FEATURE_COLUMNS_V4,
         }[self.feature_contract]
 
     def evaluate_action_policy(self, score: float) -> tuple[str, str]:
@@ -51,15 +58,18 @@ class PredictorService:
         return self.action_policy.evaluate(score)
 
     def predict_url(self, url: str) -> dict[str, Any]:
-        """Trả risk score và action; không dùng binary threshold thứ hai."""
-        cached_result = self.cache.get(url, self.model_version, self.feature_contract)
+        """Trả canonical risk score và browser decision từ cùng một policy."""
+        cached_result = self.cache.get(
+            url, self.model_version, self.feature_contract, self.policy_version
+        )
         if cached_result is not None:
             result = dict(cached_result)
             result["cached"] = True
+            result["request_id"] = str(uuid4())
             return result
 
         try:
-            features = extract_features(url, contract=self.feature_contract)
+            features = self.feature_extractor.extract(url)
             input_frame = pd.DataFrame([features], columns=self.feature_columns)
         except (TypeError, ValueError, KeyError) as error:
             LOGGER.exception("Trích xuất đặc trưng thất bại cho hostname=%s", safe_log_host(url))
@@ -81,30 +91,31 @@ class PredictorService:
                 status_code=500,
             ) from error
 
-        # Các trường label/prediction chỉ giữ để client cũ không crash. Chúng
-        # được suy ra từ action canonical, không tham gia quyết định sản phẩm.
-        legacy_label = int(action == "block")
         result = {
+            "request_id": str(uuid4()),
             "url": url,
-            "phishing_risk_score": risk_score,
-            "action": action,
-            "policy_version": self.policy_version,
-            "risk_level": risk_level,
-            "risk": {"level": risk_level, "action": action},
-            "model": {
-                "score": risk_score,
-                "threshold": self.action_policy.block_threshold,
-                "label": legacy_label,
-                "version": self.model_version,
+            "risk_score": risk_score,
+            "decision": {
+                "action": action.upper(),
+                "risk_level": risk_level.upper(),
+                "reason": ACTION_REASONS[action],
             },
-            "feature_contract": self.feature_contract,
+            "signals": {
+                "punycode": bool(features.get("has_punycode", 0)),
+                "brand_mismatch": bool(features.get("brand_not_registered_domain", 0)),
+                "shortener": bool(features.get("uses_shortening_service", 0)),
+                "suspicious_tld": bool(features.get("is_suspicious_tld", 0)),
+            },
+            "versions": {
+                "release": self.loaded_model.release_id,
+                "model": self.model_version,
+                "feature_contract": self.feature_contract,
+                "feature_contract_hash": self.loaded_model.feature_contract_hash,
+                "policy": self.policy_version,
+            },
             "cached": False,
-            "label": legacy_label,
-            "prediction": LABEL_NAMES[legacy_label],
-            "model_score": risk_score,
-            "model_version": self.model_version,
         }
-        self.cache.put(url, result, self.model_version, self.feature_contract)
+        self.cache.put(url, result, self.model_version, self.feature_contract, self.policy_version)
         LOGGER.info(
             "Predicted hostname=%s score=%.4f action=%s policy=%s",
             safe_log_host(url),

@@ -27,17 +27,18 @@ from phishguard.features import (
     FEATURE_COLUMNS_V1,
     FEATURE_COLUMNS_V2,
     FEATURE_COLUMNS_V3,
+    FEATURE_COLUMNS_V4,
     FEATURE_CONTRACT_V1,
     FEATURE_CONTRACT_V2,
     FEATURE_CONTRACT_V3,
-    extract_features,
+    FEATURE_CONTRACT_V4,
+    FeatureExtractor,
 )
 from phishguard.features.resources import RESOURCE_BUNDLE, RESOURCES_DIR
 from phishguard.training.baseline import create_baseline_models
 from phishguard.training.data import compute_sha256
 from phishguard.training.evaluation import (
     classification_metrics,
-    compute_ece,
     measure_inference_latency,
 )
 
@@ -48,8 +49,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SPLITS_DIR = PROJECT_ROOT / "artifacts" / "splits"
 CONFIG_PATH = PROJECT_ROOT / "configs" / "train_config.yaml"
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
-MODELS_DIR = ARTIFACTS_DIR / "models"
-API_DIR = PROJECT_ROOT / "API"
+CANDIDATES_DIR = PROJECT_ROOT / "releases" / "candidates"
 
 
 def compute_feature_contract_hash(features: tuple[str, ...]) -> str:
@@ -71,16 +71,20 @@ def load_split(name: str) -> pd.DataFrame:
     raise FileNotFoundError(f"Không tìm thấy dữ liệu split {name} tại {SPLITS_DIR}")
 
 
-def build_feature_dataframe(df: pd.DataFrame, contract: str) -> pd.DataFrame:
+def build_feature_dataframe(
+    df: pd.DataFrame, contract: str, extractor: FeatureExtractor | None = None
+) -> pd.DataFrame:
     """Trích xuất đặc trưng từ raw_url (hoặc url) theo hợp đồng chỉ định."""
     cols = {
         FEATURE_CONTRACT_V1: FEATURE_COLUMNS_V1,
         FEATURE_CONTRACT_V2: FEATURE_COLUMNS_V2,
         FEATURE_CONTRACT_V3: FEATURE_COLUMNS_V3,
+        FEATURE_CONTRACT_V4: FEATURE_COLUMNS_V4,
     }[contract]
     url_col = "raw_url" if "raw_url" in df.columns else "url"
     start = time.perf_counter()
-    extracted = [extract_features(u, contract=contract) for u in df[url_col]]
+    active_extractor = extractor or FeatureExtractor(contract=contract)
+    extracted = [active_extractor.extract(u) for u in df[url_col]]
     feature_df = pd.DataFrame(extracted, columns=cols)
     elapsed = time.perf_counter() - start
     print(
@@ -112,7 +116,7 @@ def select_best_candidate_model(
     qualified.sort(key=lambda x: x.get("pr_auc", 0.0), reverse=True)
     top_model = qualified[0]
 
-    # Tie-breaking logic
+    # Quy tắc phá hòa khi PR-AUC gần tương đương
     if len(qualified) > 1:
         second_model = qualified[1]
         diff_pr = abs(top_model["pr_auc"] - second_model["pr_auc"])
@@ -141,12 +145,13 @@ def main() -> None:
     with open(CONFIG_PATH, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    model_ver = config.get("model_version", "3.2.0")
+    model_ver = config.get("model_version", "4.0.0")
     random_seed = config.get("random_seed", 42)
     feature_contract = config.get("feature_contract", FEATURE_CONTRACT_V2)
     guardrails = config.get("model_selection", {}).get("guardrails", {})
     promotion_policy = config.get("promotion_policy", {})
     cal_method = config.get("calibration", {}).get("method", "isotonic")
+    feature_extractor = FeatureExtractor(contract=feature_contract)
 
     print(
         f" Cấu hình: version={model_ver}, feature_contract={feature_contract}, seed={random_seed}"
@@ -159,21 +164,25 @@ def main() -> None:
     policy_raw = load_split("policy_validation")
 
     print("\n 🔍 1. Trích xuất đặc trưng thống nhất từ raw_url...")
-    X_train = build_feature_dataframe(train_raw, contract=feature_contract)
+    X_train = build_feature_dataframe(
+        train_raw, contract=feature_contract, extractor=feature_extractor
+    )
     y_train = train_raw["label"].values
 
-    X_val = build_feature_dataframe(val_raw, contract=feature_contract)
+    X_val = build_feature_dataframe(val_raw, contract=feature_contract, extractor=feature_extractor)
     y_val = val_raw["label"].values
 
-    X_cal = build_feature_dataframe(cal_raw, contract=feature_contract)
+    X_cal = build_feature_dataframe(cal_raw, contract=feature_contract, extractor=feature_extractor)
     y_cal = cal_raw["label"].values
 
-    X_policy = build_feature_dataframe(policy_raw, contract=feature_contract)
+    X_policy = build_feature_dataframe(
+        policy_raw, contract=feature_contract, extractor=feature_extractor
+    )
     y_policy = policy_raw["label"].values
 
     results_table = []
 
-    # 2. Benchmark Baseline Models trên Validation Set
+    # 2. So sánh các mô hình baseline trên Validation
     print("\n 📊 2. Huấn luyện và Đánh giá Baseline Models trên Validation Set...")
     baselines = create_baseline_models(random_state=random_seed)
 
@@ -215,7 +224,7 @@ def main() -> None:
     xgb_metrics["p95_latency_ms"] = round(p95, 4)
     results_table.append({"model": "XGBoost", **xgb_metrics})
 
-    # 4. Chọn kiến trúc trên Validation bằng PR-AUC/latency, chưa chọn policy
+    # 4. Chọn kiến trúc trên Validation bằng PR-AUC và độ trễ, chưa chọn policy
     print("\n 🏆 5. Lựa chọn kiến trúc mô hình tối ưu theo PR-AUC và Guardrails...")
     selected_name, rationale, _satisfies_latency_guardrail = select_best_candidate_model(
         results_table, guardrails
@@ -223,14 +232,14 @@ def main() -> None:
     print(f"   Selected Model Architecture: {selected_name}")
     print(f"   Rationale:                   {rationale}")
 
-    # Kiểm tra deployability (Deployable Champion Family)
+    # Kiểm tra mô hình có thuộc nhóm được phép đóng gói hay không
     is_deployable = selected_name in {"XGBoost"}
     if not is_deployable:
         print(
             f"   [CẢNH BÁO] Mô hình {selected_name} không thuộc deployable model family (XGBoost JSON). Sẽ từ chối auto-promotion."
         )
 
-    # 5. Refit champion trên Train + Validation
+    # 5. Huấn luyện lại champion trên Train + Validation
     print("\n 🔄 6. Tái huấn luyện (Refit) Champion Model trên tập gộp [Train + Validation]...")
     X_train_val = pd.concat([X_train, X_val], ignore_index=True)
     y_train_val = np.concatenate([y_train, y_val])
@@ -257,14 +266,9 @@ def main() -> None:
     raw_policy_scores = champion_model.predict_proba(X_policy)[:, 1]
     calibrated_policy_scores = calibrator.calibrate(raw_policy_scores)
     raw_cal_scores = np.asarray(raw_cal_scores)
-    cal_eval = {
-        "ece_before": compute_ece(y_cal, raw_cal_scores),
-        "ece_after": compute_ece(y_policy, calibrated_policy_scores),
-        "brier_before": float(np.mean((raw_cal_scores - y_cal) ** 2)),
-        "brier_after": float(np.mean((calibrated_policy_scores - y_policy) ** 2)),
-    }
-    print(f"   • ECE Calibration fit:   {cal_eval['ece_before']:.4f}")
-    print(f"   • ECE Policy Validation: {cal_eval['ece_after']:.4f}")
+    cal_eval = calibrator.evaluate_fit(raw_cal_scores, y_cal)
+    print(f"   • ECE Calibration trước hiệu chuẩn: {cal_eval['ece_before']:.4f}")
+    print(f"   • ECE Calibration sau hiệu chuẩn:   {cal_eval['ece_after']:.4f}")
 
     # 7. Chọn ActionPolicy trên Policy Validation, tuyệt đối không dùng Calibration
     print("\n ⚖️ 7. Chọn caution/block threshold trên Policy Validation...")
@@ -274,9 +278,15 @@ def main() -> None:
         calibrated_policy_scores,
         caution_max_fpr=float(th_policy_cfg.get("caution_max_fpr", 0.02)),
         block_max_fpr=float(th_policy_cfg.get("block_max_fpr", 0.005)),
+        caution_min_recall=float(th_policy_cfg.get("caution_min_recall", 0.90)),
+        block_min_recall=float(th_policy_cfg.get("block_min_recall", 0.80)),
         policy_version=str(th_policy_cfg.get("policy_version", "browser-risk-v1")),
     )
     action_policy = ActionPolicy.from_dict(policy_selection["policy"])
+    policy_split_path = SPLITS_DIR / "policy_validation.parquet"
+    if not policy_split_path.exists():
+        policy_split_path = SPLITS_DIR / "policy_validation.csv.gz"
+    policy_dataset_hash = compute_sha256(policy_split_path)
     policy_eval = {
         "caution": classification_metrics(
             y_policy,
@@ -292,42 +302,63 @@ def main() -> None:
     print(f"   • Caution threshold: {action_policy.caution_threshold}")
     print(f"   • Block threshold:   {action_policy.block_threshold}")
 
-    # 9. KIỂM TRA QUALITY GATE VÀ PROMOTION ELIGIBILITY (P0.7)
+    # 9. Kiểm tra gate chất lượng để quyết định candidate có đủ điều kiện
     print("\n 🛡️ 9. Kiểm toán Quality Gate & Promotion Policy...")
     val_pr_auc = xgb_metrics["pr_auc"]
     val_lat = xgb_metrics["p95_latency_ms"]
 
-    val_pol = promotion_policy.get("validation", {})
-    cal_pol = promotion_policy.get("calibration", {})
-    serv_pol = promotion_policy.get("serving", {})
+    release_gates = config.get("release_gates", {})
+    val_pol = release_gates.get("ranking", promotion_policy.get("validation", {}))
+    cal_pol = release_gates.get("calibration", promotion_policy.get("calibration", {}))
+    serv_pol = release_gates.get("latency", promotion_policy.get("serving", {}))
+    block_gate = release_gates.get("block", {})
+    caution_gate = release_gates.get("caution", {})
 
     passed_val = bool(val_pr_auc >= val_pol.get("min_pr_auc", 0.85))
     passed_cal = bool(cal_eval["ece_after"] <= cal_pol.get("max_ece", 0.05))
     passed_lat = bool(val_lat <= serv_pol.get("max_model_p95_ms", 5.0))
+    passed_block = bool(
+        policy_eval["block"]["false_positive_rate"] <= block_gate.get("max_fpr", 0.005)
+        and policy_eval["block"]["recall"] >= block_gate.get("min_recall", 0.80)
+    )
+    passed_caution = bool(
+        policy_eval["caution"]["false_positive_rate"] <= caution_gate.get("max_fpr", 0.02)
+        and policy_eval["caution"]["recall"] >= caution_gate.get("min_recall", 0.90)
+    )
 
-    promotion_eligible = bool(passed_val and passed_cal and passed_lat and is_deployable)
+    candidate_eligible = bool(
+        passed_val
+        and passed_cal
+        and passed_lat
+        and passed_block
+        and passed_caution
+        and is_deployable
+    )
     print(f"   • Validation Guardrails:  {'PASSED ✅' if passed_val else 'FAILED ❌'}")
     print(f"   • Calibration ECE Target: {'PASSED ✅' if passed_cal else 'FAILED ❌'}")
     print(f"   • Serving Latency Target: {'PASSED ✅' if passed_lat else 'FAILED ❌'}")
+    print(f"   • Block Policy Gate:       {'PASSED ✅' if passed_block else 'FAILED ❌'}")
+    print(f"   • Caution Policy Gate:     {'PASSED ✅' if passed_caution else 'FAILED ❌'}")
     print(f"   • Deployable Artifact:    {'PASSED ✅' if is_deployable else 'FAILED ❌'}")
-    print(f"   => PROMOTION ELIGIBILITY: {'ELIGIBLE ✅' if promotion_eligible else 'BLOCKED ❌'}")
+    print(f"   => CANDIDATE ELIGIBILITY: {'ELIGIBLE ✅' if candidate_eligible else 'BLOCKED ❌'}")
 
-    # 10. ĐÓNG GÓI VERSIONED FROZEN ARTIFACT (P0.8)
+    # 10. Đóng gói artifact bất biến theo version
     print(f"\n 📦 10. Đóng gói Frozen Model Artifacts: phishguard-{model_ver}...")
     version_tag = f"phishguard-{model_ver}"
-    model_version_dir = MODELS_DIR / version_tag
+    model_version_dir = CANDIDATES_DIR / version_tag
     model_version_dir.mkdir(parents=True, exist_ok=True)
 
-    # A. Model Native JSON
+    # A. Mô hình JSON native
     model_json_path = model_version_dir / "model.json"
     champion_model.save_model(model_json_path)
     model_sha256 = compute_sha256(model_json_path)
 
-    # B. Feature Contract JSON
+    # B. JSON hợp đồng đặc trưng
     cols = {
         FEATURE_CONTRACT_V1: FEATURE_COLUMNS_V1,
         FEATURE_CONTRACT_V2: FEATURE_COLUMNS_V2,
         FEATURE_CONTRACT_V3: FEATURE_COLUMNS_V3,
+        FEATURE_CONTRACT_V4: FEATURE_COLUMNS_V4,
     }[feature_contract]
     contract_hash = compute_feature_contract_hash(cols)
     feature_contract_data = {
@@ -339,11 +370,9 @@ def main() -> None:
     with open(model_version_dir / "feature_contract.json", "w", encoding="utf-8") as f:
         json.dump(feature_contract_data, f, indent=2)
 
-    # C. Calibration JSON
+    # C. JSON hiệu chuẩn
     calibration_artifact = CalibrationArtifact(
         method=cal_method,
-        threshold=action_policy.block_threshold,
-        target_fpr=float(th_policy_cfg.get("block_max_fpr", 0.005)),
         ece_before=cal_eval["ece_before"],
         ece_after=cal_eval["ece_after"],
         brier_before=cal_eval["brier_before"],
@@ -363,6 +392,8 @@ def main() -> None:
             {
                 **action_policy.to_dict(),
                 "selection_dataset": "policy-validation-v1",
+                "selection_dataset_hash": policy_dataset_hash,
+                "constraints": policy_selection["constraints"],
                 "selection_metrics": policy_selection,
             },
             indent=2,
@@ -377,7 +408,7 @@ def main() -> None:
     for resource_name in ("brand_terms.json", "shortener_domains.json", "suspicious_tlds.json"):
         shutil.copy(RESOURCES_DIR / resource_name, release_resources_dir / resource_name)
 
-    # E. Metadata JSON
+    # E. JSON metadata
     metadata = {
         "artifact_schema_version": "4.0.0",
         "model_version": model_ver,
@@ -386,11 +417,6 @@ def main() -> None:
         "feature_contract": feature_contract,
         "feature_count": len(cols),
         "feature_contract_hash": contract_hash,
-        "threshold": action_policy.block_threshold,
-        "risk_thresholds": {
-            "caution": action_policy.caution_threshold,
-            "block": action_policy.block_threshold,
-        },
         "policy_version": action_policy.policy_version,
         "operating_policy": action_policy.to_dict(),
         "calibration": {
@@ -409,8 +435,16 @@ def main() -> None:
         "resource_versions": RESOURCE_BUNDLE.versions,
         "tld_library_version": RESOURCE_BUNDLE.tld_library_version,
         "xgboost_version": xgboost.__version__,
-        "promotion_eligible": promotion_eligible,
-        "promotion_rules": [
+        "release_id": version_tag,
+        "candidate_eligible": candidate_eligible,
+        "release_gates": {
+            "ranking": {"passed": passed_val, **val_pol},
+            "calibration": {"passed": passed_cal, **cal_pol},
+            "latency": {"passed": passed_lat, **serv_pol},
+            "block": {"passed": passed_block, **block_gate},
+            "caution": {"passed": passed_caution, **caution_gate},
+        },
+        "candidate_rules": [
             f"min_pr_auc >= {val_pol.get('min_pr_auc', 0.85)}",
             "caution/block thresholds selected only on Policy Validation",
             f"max_ece <= {cal_pol.get('max_ece', 0.05)}",
@@ -421,7 +455,7 @@ def main() -> None:
     with open(model_version_dir / "metadata.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-    # Copy split_manifest and data_manifest into version directory
+    # Sao chép manifest split và dữ liệu vào thư mục version
     if (ARTIFACTS_DIR / "split_manifest.json").exists():
         shutil.copy(
             ARTIFACTS_DIR / "split_manifest.json", model_version_dir / "split_manifest.json"
@@ -431,37 +465,25 @@ def main() -> None:
             ARTIFACTS_DIR / "dataset_manifest.json", model_version_dir / "data_manifest.json"
         )
 
-    # F. Registry Pointer production.json & Backward Compatibility Exports
-    if promotion_eligible:
-        registry_pointer = {
-            "active_version": version_tag,
-            "model_version": model_ver,
-            "model_dir": f"artifacts/models/{version_tag}",
-            "promoted_at": datetime.datetime.now(datetime.UTC).isoformat(),
-        }
-        with open(MODELS_DIR / "production.json", "w", encoding="utf-8") as f:
-            json.dump(registry_pointer, f, indent=2)
-        print(
-            f"   [OK] Đã cập nhật Model Registry Active Pointer: {MODELS_DIR / 'production.json'}"
-        )
+    candidate_manifest = {
+        "release_id": version_tag,
+        "candidate_dir": str(model_version_dir.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        "candidate_eligible": candidate_eligible,
+        "locked_test_required": True,
+        "model_sha256": model_sha256,
+        "calibration_sha256": calibration_sha256,
+        "action_policy_sha256": action_policy_sha256,
+        "feature_contract": feature_contract,
+        "feature_contract_hash": contract_hash,
+        "resource_hashes": RESOURCE_BUNDLE.hashes,
+    }
+    (model_version_dir / "candidate_manifest.json").write_text(
+        json.dumps(candidate_manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    print(f"   [OK] Candidate immutable đã tạo tại: {model_version_dir}")
+    print("   [OK] Chưa cập nhật current_release.json; cần chạy Locked Test và promote_release.py.")
 
-        # Tương thích ngược: xuất bản sao vào artifacts/ và API/
-        API_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.copy(model_json_path, ARTIFACTS_DIR / "XGB.json")
-        shutil.copy(model_json_path, API_DIR / "XGB.json")
-        shutil.copy(calibration_path, API_DIR / "calibration.json")
-        shutil.copy(policy_path, API_DIR / "action_policy.json")
-        with open(API_DIR / "model_metadata.json", "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
-        with open(ARTIFACTS_DIR / "model_metadata.json", "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)
-        print(
-            "   [OK] Đã đồng bộ bản sao tương thích ngược sang API/XGB.json và API/model_metadata.json"
-        )
-    else:
-        print("   [CẢNH BÁO] Mô hình không đạt Promotion Policy. KHÔNG cập nhật production.json!")
-
-    # Summary table output
+    # In bảng tóm tắt kết quả benchmark
     results_df = pd.DataFrame(results_table)
     print("\n" + "=" * 70)
     print(" 📋 BẢNG SO SÁNH BENCHMARK CÁC MÔ HÌNH TRÊN TẬP VALIDATION")
@@ -485,7 +507,7 @@ def main() -> None:
         "feature_contract": feature_contract,
         "caution_threshold": action_policy.caution_threshold,
         "block_threshold": action_policy.block_threshold,
-        "promotion_eligible": promotion_eligible,
+        "candidate_eligible": candidate_eligible,
         "calibration": cal_eval,
         "policy_validation": policy_eval,
         "action_policy": policy_selection,

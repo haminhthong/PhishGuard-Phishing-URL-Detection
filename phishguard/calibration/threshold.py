@@ -102,6 +102,8 @@ def select_action_policy(
     *,
     caution_max_fpr: float = 0.02,
     block_max_fpr: float = 0.005,
+    caution_min_recall: float = 0.90,
+    block_min_recall: float = 0.80,
     policy_version: str = "browser-risk-v1",
 ) -> dict[str, Any]:
     """Chọn hai ngưỡng trên Policy Validation độc lập với Calibration.
@@ -110,7 +112,11 @@ def select_action_policy(
     thấp hơn để hạn chế chặn nhầm. Không dùng cost giả định để quyết định hành
     động production; cost chỉ là thông tin nhạy cảm trong benchmark.
     """
-    if not (0.0 <= block_max_fpr <= caution_max_fpr <= 1.0):
+    if not (
+        0.0 <= block_max_fpr <= caution_max_fpr <= 1.0
+        and 0.0 <= block_min_recall <= 1.0
+        and 0.0 <= caution_min_recall <= 1.0
+    ):
         raise ValueError("FPR policy phải thỏa 0 <= block_max_fpr <= caution_max_fpr <= 1")
 
     y_true_arr = np.asarray(y_true, dtype=int).ravel()
@@ -127,24 +133,39 @@ def select_action_policy(
         recall = float(tp / (tp + fn)) if tp + fn else 0.0
         return {"threshold": float(threshold), "fpr": fpr, "recall": recall}
 
-    def choose(max_fpr: float, minimum: float = 0.0) -> dict[str, float]:
-        feasible = [metrics_at(float(th)) for th in candidates if th >= minimum]
-        constrained = [item for item in feasible if item["fpr"] <= max_fpr]
-        pool = constrained or feasible
-        # Tối đa recall, sau đó chọn threshold cao hơn để ưu tiên ít cảnh báo nhầm.
-        return max(pool, key=lambda item: (item["recall"], item["threshold"]))
+    candidate_metrics = [metrics_at(float(th)) for th in candidates]
+    caution_candidates = [
+        item
+        for item in candidate_metrics
+        if item["fpr"] <= caution_max_fpr and item["recall"] >= caution_min_recall
+    ]
+    block_candidates = [
+        item
+        for item in candidate_metrics
+        if item["fpr"] <= block_max_fpr and item["recall"] >= block_min_recall
+    ]
+    pairs = [
+        (caution, block)
+        for caution in caution_candidates
+        for block in block_candidates
+        if caution["threshold"] < block["threshold"]
+    ]
+    if not pairs:
+        raise ValueError(
+            "POLICY_NOT_RELEASABLE: không đạt đồng thời FPR, minimum recall và thứ tự ngưỡng"
+        )
 
-    caution = choose(caution_max_fpr)
-    block = choose(block_max_fpr, minimum=min(1.0, caution["threshold"] + 1e-6))
-    if block["threshold"] <= caution["threshold"]:
-        higher = [
-            item
-            for item in (metrics_at(float(th)) for th in candidates)
-            if item["threshold"] > caution["threshold"]
-        ]
-        if not higher:
-            raise ValueError("Policy Validation không tạo được hai ngưỡng phân biệt")
-        block = min(higher, key=lambda item: item["threshold"])
+    # Chọn cặp đồng thời: ưu tiên caution recall, sau đó block recall; cuối cùng
+    # ưu tiên threshold cao hơn để giảm cảnh báo/chặn nhầm trong các trường hợp hòa.
+    caution, block = max(
+        pairs,
+        key=lambda pair: (
+            pair[0]["recall"],
+            pair[1]["recall"],
+            pair[1]["threshold"],
+            pair[0]["threshold"],
+        ),
+    )
 
     policy = ActionPolicy(
         caution_threshold=round(caution["threshold"], 6),
@@ -158,5 +179,7 @@ def select_action_policy(
         "constraints": {
             "caution_max_fpr": caution_max_fpr,
             "block_max_fpr": block_max_fpr,
+            "caution_min_recall": caution_min_recall,
+            "block_min_recall": block_min_recall,
         },
     }

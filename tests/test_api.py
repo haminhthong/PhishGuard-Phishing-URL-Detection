@@ -2,6 +2,7 @@
 Bộ kiểm thử tích hợp (Integration Tests) mở rộng cho PhishGuard ML FastAPI endpoints.
 Kiểm tra toàn bộ REST API contract, validation schema, error code contract, LRU Cache, concurrency và Batch Prediction.
 """
+
 from __future__ import annotations
 
 import unittest
@@ -20,6 +21,9 @@ class ApiContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         """Khởi tạo TestClient cho ứng dụng FastAPI."""
+        registry = Path(__file__).resolve().parents[1] / "releases" / "current_release.json"
+        if not registry.is_file():
+            raise unittest.SkipTest("Chưa có release được promote; API readiness phải fail-closed")
         cls.client = TestClient(app)
 
     def setUp(self) -> None:
@@ -34,8 +38,10 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(json_data["status"], "ok")
         self.assertIn("model_version", json_data)
         self.assertIn(json_data["feature_count"], {12, 25})
-        self.assertIn(json_data["feature_contract"], {"lexical-v1", "lexical-v2", "lexical-v3"})
-        self.assertIn("threshold", json_data)
+        self.assertIn(
+            json_data["feature_contract"], {"lexical-v1", "lexical-v2", "lexical-v3", "lexical-v4"}
+        )
+        self.assertIn("action_policy", json_data)
 
     def test_model_info_endpoint(self) -> None:
         """Kiểm tra endpoint /model-info công bố hợp đồng đặc trưng và version."""
@@ -44,7 +50,9 @@ class ApiContractTests(unittest.TestCase):
         json_data = response.json()
         self.assertIn(json_data["feature_count"], {12, 25})
         self.assertEqual(len(json_data["features"]), json_data["feature_count"])
-        self.assertIn(json_data["feature_contract"], {"lexical-v1", "lexical-v2", "lexical-v3"})
+        self.assertIn(
+            json_data["feature_contract"], {"lexical-v1", "lexical-v2", "lexical-v3", "lexical-v4"}
+        )
 
     def test_system_stats_endpoint(self) -> None:
         """Kiểm tra endpoint /stats báo cáo chỉ số thống kê hệ thống và hit rate."""
@@ -56,7 +64,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("cache_capacity", data)
 
     def test_prediction_response_contract_for_valid_url(self) -> None:
-        """Kiểm tra schema phản hồi chuẩn: model_score, risk_level, model_version."""
+        """Kiểm tra schema phản hồi canonical: risk_score, decision và versions."""
         response = self.client.post(
             "/phish-url-prediction",
             json={"url": "https://google.com"},
@@ -64,12 +72,14 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["url"], "https://google.com")
-        self.assertIn("label", data)
-        self.assertIn("prediction", data)
-        self.assertIn("model_score", data)
-        self.assertIn(data["risk_level"], {"high", "medium", "low"})
-        self.assertIn(data["model_version"], {"3.0.0", "3.1.0", "3.2.0"})
-        self.assertIn(data["feature_contract"], {"lexical-v1", "lexical-v2", "lexical-v3"})
+        self.assertIn("risk_score", data)
+        self.assertIn(data["decision"]["risk_level"], {"HIGH", "MEDIUM", "LOW"})
+        self.assertIn(data["decision"]["action"], {"ALLOW", "CAUTION", "BLOCK"})
+        self.assertIn("release", data["versions"])
+        self.assertIn(
+            data["versions"]["feature_contract"],
+            {"lexical-v1", "lexical-v2", "lexical-v3", "lexical-v4"},
+        )
         self.assertFalse(data["cached"])
 
     def test_prediction_lru_cache_hit(self) -> None:
@@ -153,7 +163,7 @@ class ApiContractTests(unittest.TestCase):
             json={"url": "https://xn--e1afmkfd.xn--p1ai/path"},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("model_score", response.json())
+        self.assertIn("risk_score", response.json())
 
     def test_clear_cache_endpoint(self) -> None:
         """Kiểm tra endpoint DELETE /cache xóa sạch bộ nhớ đệm."""
@@ -201,6 +211,7 @@ class ApiContractTests(unittest.TestCase):
         ]
         response = self.client.post("/phish-url-prediction/batch", json={"urls": urls})
         self.assertEqual(response.status_code, 200)
+
     def test_liveness_and_readiness_endpoints(self) -> None:
         """Kiểm tra các endpoint liveness (/health/live) và readiness (/health/ready)."""
         live_res = self.client.get("/health/live")
@@ -212,28 +223,22 @@ class ApiContractTests(unittest.TestCase):
         ready_data = ready_res.json()
         self.assertEqual(ready_data["status"], "ready")
         self.assertIn("model_version", ready_data)
-        self.assertIn("threshold", ready_data)
+        self.assertIn("action_policy", ready_data)
 
     def test_decoupled_model_and_risk_policy_response_structure(self) -> None:
-        """Kiểm tra API trả về cấu trúc tách bạch giữa model metrics và risk policy."""
+        """Kiểm tra API chỉ trả canonical risk score và browser decision."""
         res = self.client.post("/phish-url-prediction", json={"url": "https://paypal.com"})
         self.assertEqual(res.status_code, 200)
         data = res.json()
-        # Kiểm tra block model
-        self.assertIn("model", data)
-        self.assertIn("score", data["model"])
-        self.assertIn("threshold", data["model"])
-        self.assertIn("label", data["model"])
-        self.assertIn("version", data["model"])
-        # Kiểm tra block risk policy
-        self.assertIn("risk", data)
-        self.assertIn("level", data["risk"])
-        self.assertIn("action", data["risk"])
-        self.assertIn(data["risk"]["level"], {"low", "medium", "high"})
-        self.assertIn(data["risk"]["action"], {"allow", "caution", "block"})
-        # Kiểm tra các trường tương thích ngược
-        self.assertIn("model_score", data)
-        self.assertIn("risk_level", data)
+        self.assertIn("risk_score", data)
+        self.assertEqual(set(data["decision"]), {"action", "risk_level", "reason"})
+        self.assertEqual(
+            set(data["signals"]), {"punycode", "brand_mismatch", "shortener", "suspicious_tld"}
+        )
+        self.assertEqual(
+            set(data["versions"]),
+            {"release", "model", "feature_contract", "feature_contract_hash", "policy"},
+        )
 
     def test_cache_key_isolated_by_model_version(self) -> None:
         """Kiểm tra cache key thay đổi khi đổi model_version hoặc feature_contract."""
@@ -243,6 +248,13 @@ class ApiContractTests(unittest.TestCase):
         key_v1 = PredictionCache.hash_key(url, model_version="3.0.0", feature_contract="lexical-v1")
         key_v2 = PredictionCache.hash_key(url, model_version="3.1.0", feature_contract="lexical-v2")
         self.assertNotEqual(key_v1, key_v2)
+        key_policy = PredictionCache.hash_key(
+            url,
+            model_version="3.1.0",
+            feature_contract="lexical-v2",
+            policy_version="browser-risk-v2",
+        )
+        self.assertNotEqual(key_v2, key_policy)
 
     def test_checksum_mismatch_raises_integrity_error(self) -> None:
         """Kiểm tra loader từ chối nạp mô hình khi checksum SHA-256 không khớp."""
@@ -255,15 +267,21 @@ class ApiContractTests(unittest.TestCase):
             meta_file = tmp_path / "meta.json"
 
             # Sao chép model hiện tại nhưng ghi checksum sai vào meta
-            real_model = Path(__file__).resolve().parents[1] / "API" / "XGB.json"
+            root = Path(__file__).resolve().parents[1]
+            registry = __import__("json").loads(
+                (root / "releases" / "current_release.json").read_text(encoding="utf-8")
+            )
+            real_model = root / registry["release_dir"] / "model.json"
             model_file.write_bytes(real_model.read_bytes())
             meta_file.write_text(
-                json.dumps({
-                    "model_version": "3.0.0",
-                    "feature_contract": "lexical-v1",
-                    "threshold": 0.5,
-                    "model_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-                }),
+                json.dumps(
+                    {
+                        "model_version": "3.0.0",
+                        "feature_contract": "lexical-v1",
+                        "threshold": 0.5,
+                        "model_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                    }
+                ),
                 encoding="utf-8",
             )
 
