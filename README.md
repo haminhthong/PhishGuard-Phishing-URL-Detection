@@ -1,5 +1,7 @@
 # PhishGuard ML
 
+[![CI](https://github.com/haminhthong/Phishguard-Url-Phishing-Detection/actions/workflows/ci.yml/badge.svg)](https://github.com/haminhthong/Phishguard-Url-Phishing-Detection/actions/workflows/ci.yml)
+
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116%2B-009688?logo=fastapi&logoColor=white)
 ![XGBoost](https://img.shields.io/badge/XGBoost-Native%20JSON-F7931E?logo=xgboost&logoColor=white)
@@ -10,7 +12,7 @@
 > **Tài liệu canonical:** README này mô tả đúng code, cấu hình và release flow hiện
 > tại. Metric không ghi cố định trong README; đọc từ report của release tương ứng.
 
-## Đặc tả canonical: Bài toán, phạm vi và luồng kỹ thuật
+## Bài Toán & Phạm Vi Ứng Dụng (Problem & Scope)
 
 PhishGuard ML là hệ thống phát hiện rủi ro phishing **URL-only**, chạy local-first.
 Chrome Extension gửi URL đến FastAPI trên `127.0.0.1`; API trích xuất 25 đặc
@@ -88,7 +90,8 @@ flowchart TD
 ### Các bất biến phải giữ
 
 1. Giữ nguyên `raw_url` khi trích xuất feature; `canonical_url` chỉ dùng cho
-   deduplication, conflict audit và cache identity.
+   deduplication và conflict audit. Cache băm URL đầu vào cùng phiên bản model,
+   feature contract và policy; không dùng canonical URL của pipeline dữ liệu.
 2. Loại exact canonical conflict nhưng giữ registered domain có cả nhãn legit và
    phishing để bảo toàn hard cases shared-hosting.
 3. Năm split không giao nhau theo registered domain và canonical URL.
@@ -99,7 +102,7 @@ flowchart TD
    được ghi `releases/current_release.json`.
 7. API fail-closed khi thiếu pointer, sai metadata/checksum/resource/contract.
 
-## Cấu trúc thư mục và trách nhiệm
+## Cấu Trúc Thư Mục Dự Án (Project Structure)
 
 ```text
 PhishGuard ML/
@@ -132,7 +135,7 @@ PhishGuard ML/
 cũ trong `API/` hoặc `artifacts/` không được loader sử dụng; production chỉ đọc
 bundle được trỏ bởi `current_release.json`.
 
-## Cài đặt và chạy đúng luồng
+## Hướng Dẫn Cài Đặt & Chạy Thử Nghiệm
 
 ### Cài đặt
 
@@ -256,7 +259,7 @@ Response gồm `request_id`, `url`, `risk_score`, `decision`
 (`punycode`, `brand_mismatch`, `shortener`, `suspicious_tld`) và
 `versions` (`release`, `model`, `feature_contract`,
 `feature_contract_hash`, `policy`). Endpoint batch canonical là
-`POST /v1/score/batch`, body `{\"urls\":[\"https://example.com\"]}`, nhận tối đa
+`POST /v1/score/batch`, body `{"urls":["https://example.com"]}`, nhận tối đa
 50 URL và giữ nguyên thứ tự đầu vào. Alias `/phish-url-prediction` và
 `/phish-url-prediction/batch` chỉ để tương thích client cũ. Hệ thống còn có
 `/health/live`, `/health/ready`, `/health`,
@@ -275,15 +278,24 @@ Report không ghi metric cố định vào README:
 ```powershell
 .venv\Scripts\python.exe -m ruff check phishguard API scripts tests
 .venv\Scripts\python.exe -m ruff format --check phishguard API scripts tests
-.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe -m unittest discover -s tests -v
 node --check Extension\background.js
 node --check Extension\content.js
 node --check Extension\popup.js
 node --check Extension\warning.js
+node --check Extension\config.js
 ```
 
-Test API cần release hợp lệ có thể skip/fail-closed khi checkout chưa chạy
-pipeline/promote; đó là hành vi có chủ đích, không phải fallback artifact cũ.
+CI dùng Python 3.11 và Node.js 22, chạy khi push vào main/master, mở pull request
+hoặc chạy thủ công bằng workflow_dispatch. Badge phía trên phản ánh lần chạy trên
+GitHub; kết quả kiểm thử cục bộ không thay thế trạng thái của GitHub Actions.
+
+Kiểm thử đăng ký route và xác thực URL chạy ngay trên checkout mới. Cả request
+đơn và batch từ chối cổng sai, cổng vượt 65535, khoảng trắng bên trong và ký tự
+điều khiển; URL IPv6 và khoảng trắng mã hóa `%20` vẫn được giữ nguyên.
+Toàn bộ lớp ApiContractTests cần release hợp lệ và bị skip khi chưa promote.
+Vì vậy CI xanh ở checkout mới chưa chứng minh luồng dự đoán với model thật đã đạt;
+cần chạy lại test sau pipeline/promote để kiểm tra tích hợp đầy đủ.
 
 Chi tiết threat model/privacy nằm trong `SECURITY.md`. Giữ hàm nhỏ, chú thích
 tiếng Việt tập trung vào lý do, không đổi thứ tự `FEATURE_COLUMNS` nếu chưa tăng

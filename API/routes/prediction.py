@@ -21,10 +21,18 @@ def normalize_web_url(value: str) -> str:
     try:
         parsed = urlparse(normalized)
         hostname = parsed.hostname
+        # urlparse chỉ xác thực cổng khi truy cập thuộc tính port.
+        _ = parsed.port
+        # urlparse chỉ xác thực cổng khi truy cập thuộc tính port.
+        _ = parsed.port
     except ValueError as error:
         raise ValueError("URL có hostname không hợp lệ") from error
     if parsed.scheme.lower() not in {"http", "https"} or not hostname:
         raise ValueError("URL phải sử dụng giao thức HTTP hoặc HTTPS và có hostname hợp lệ")
+    if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in normalized):
+        raise ValueError("URL không được chứa khoảng trắng hoặc ký tự điều khiển")
+    if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in normalized):
+        raise ValueError("URL không được chứa khoảng trắng hoặc ký tự điều khiển")
     return normalized
 
 
