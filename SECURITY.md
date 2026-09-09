@@ -40,7 +40,7 @@ PhishGuard ML là một bộ lọc rủi ro mức Lexical URL, **không có kh�
 
 - API chỉ nạp mô hình từ định dạng **Native XGBoost JSON** chính thức (`XGB.json`).
 - Hệ thống từ chối hoàn toàn việc giải tuần tự hóa các tệp Python Pickle (`.pkl`, `.joblib`) để phòng ngừa lỗ hổng RCE (Remote Code Execution).
-- Khi khởi động, API xác thực mã băm SHA-256 của file mô hình đối chiếu với `model_metadata.json`. Nếu phát hiện file bị chỉnh sửa hoặc sai lệch, API sẽ từ chối khởi động với lỗi `MODEL_INTEGRITY_ERROR`.
+- Khi nạp release, API xác thực SHA-256 của model và các artifact theo `metadata.json` trong release bundle. Nếu checksum sai, API từ chối phục vụ với lỗi `MODEL_INTEGRITY_ERROR`.
 
 ---
 

@@ -131,9 +131,12 @@ PhishGuard ML/
 └── README.md                   # tài liệu canonical
 ```
 
-`releases/` và `reports/` có thể chưa tồn tại ở checkout mới. Các bản sao model
-cũ trong `API/` hoặc `artifacts/` không được loader sử dụng; production chỉ đọc
-bundle được trỏ bởi `current_release.json`.
+`releases/` và `reports/` có thể chưa tồn tại ở checkout mới. Production đọc
+bundle được trỏ bởi `releases/current_release.json`. Đã loại bỏ các bản sao model
+legacy trong `API/`, `artifacts/` và `artifacts/models/` để tránh chọn nhầm model.
+Script `export_model.py` đã được bỏ; dùng pipeline train → evaluate → stress →
+promote bên dưới. Báo cáo và split trong `artifacts/` cần tái tạo theo cấu hình
+hiện tại trước khi huấn luyện; dữ liệu nguồn vẫn nằm riêng trong `Data/`.
 
 ## Hướng Dẫn Cài Đặt & Chạy Thử Nghiệm
 
