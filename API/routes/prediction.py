@@ -23,14 +23,10 @@ def normalize_web_url(value: str) -> str:
         hostname = parsed.hostname
         # urlparse chỉ xác thực cổng khi truy cập thuộc tính port.
         _ = parsed.port
-        # urlparse chỉ xác thực cổng khi truy cập thuộc tính port.
-        _ = parsed.port
     except ValueError as error:
         raise ValueError("URL có hostname không hợp lệ") from error
     if parsed.scheme.lower() not in {"http", "https"} or not hostname:
         raise ValueError("URL phải sử dụng giao thức HTTP hoặc HTTPS và có hostname hợp lệ")
-    if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in normalized):
-        raise ValueError("URL không được chứa khoảng trắng hoặc ký tự điều khiển")
     if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in normalized):
         raise ValueError("URL không được chứa khoảng trắng hoặc ký tự điều khiển")
     return normalized
@@ -76,9 +72,8 @@ class SignalDetails(BaseModel):
 
 
 class VersionDetails(BaseModel):
-    """Lineage của release đã tạo ra kết quả."""
+    """Thông tin phiên bản đã tạo ra kết quả."""
 
-    release: str
     model: str
     feature_contract: str
     feature_contract_hash: str
@@ -94,7 +89,6 @@ class PredictionResponse(BaseModel):
     decision: DecisionDetails
     signals: SignalDetails
     versions: VersionDetails
-    cached: bool = False
 
 
 class BatchPredictionResponse(BaseModel):
@@ -111,13 +105,7 @@ router = APIRouter(tags=["Dự đoán URL"])
     "/v1/score",
     response_model=PredictionResponse,
     status_code=status.HTTP_200_OK,
-    summary="Chấm điểm rủi ro URL theo release contract",
-)
-@router.post(
-    "/phish-url-prediction",
-    response_model=PredictionResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Dự đoán nhãn rủi ro cho một URL",
+    summary="Chấm điểm rủi ro URL theo lexical-v4 contract",
 )
 def predict_single_url(
     request: URLRequest,
@@ -131,13 +119,7 @@ def predict_single_url(
     "/v1/score/batch",
     response_model=BatchPredictionResponse,
     status_code=status.HTTP_200_OK,
-    summary="Chấm điểm hàng loạt (tối đa 50 URL) theo release contract",
-)
-@router.post(
-    "/phish-url-prediction/batch",
-    response_model=BatchPredictionResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Dự đoán hàng loạt (tối đa 50 URL)",
+    summary="Chấm điểm hàng loạt (tối đa 50 URL) theo lexical-v4 contract",
 )
 def predict_batch_urls(
     request: BatchURLRequest,

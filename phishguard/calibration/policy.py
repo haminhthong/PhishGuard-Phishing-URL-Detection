@@ -37,7 +37,7 @@ class CalibrationArtifact:
 class ActionPolicy:
     """Nguồn sự thật duy nhất cho quyết định ALLOW/CAUTION/BLOCK.
 
-    `caution_threshold` và `block_threshold` phải được chọn trên tập Policy
+    `caution_threshold` và `block_threshold` phải được chọn trên tập
     Validation độc lập. Điểm thấp chỉ có nghĩa là rủi ro lexical thấp, không
     phải cam kết website an toàn tuyệt đối.
     """
@@ -73,9 +73,9 @@ class ActionPolicy:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ActionPolicy:
-        """Nạp policy mới; chỉ chấp nhận key legacy để migrate có kiểm soát."""
-        caution = data.get("caution_threshold", data.get("medium"))
-        block = data.get("block_threshold", data.get("high"))
+        """Nạp policy với schema cố định, không fallback sang key legacy."""
+        caution = data.get("caution_threshold")
+        block = data.get("block_threshold")
         if caution is None or block is None:
             raise ValueError("Action policy thiếu caution_threshold hoặc block_threshold")
         actions = data.get("actions", {})
@@ -88,54 +88,4 @@ class ActionPolicy:
             caution_threshold=float(caution),
             block_threshold=float(block),
             policy_version=str(data.get("policy_version", "browser-risk-v1")),
-        )
-
-
-@dataclass
-class RiskPolicyConfig:
-    """
-    Policy legacy để đọc artifact v3.2 cũ.
-
-    Production không dùng class này; API dùng `ActionPolicy` để tránh hành động
-    `warn` mâu thuẫn với nhãn nhị phân hoặc ngưỡng cũ.
-    """
-
-    high_threshold: float = 0.75
-    medium_threshold: float = 0.45
-
-    def __post_init__(self) -> None:
-        if not (0.0 <= self.medium_threshold <= self.high_threshold <= 1.0):
-            raise ValueError(
-                f"Thứ tự ngưỡng rủi ro không hợp lệ: 0.0 <= {self.medium_threshold} <= {self.high_threshold} <= 1.0"
-            )
-
-    def evaluate(self, score: float) -> tuple[str, str]:
-        """
-        Đánh giá mức độ rủi ro dựa trên xác suất đã hiệu chuẩn:
-        - HIGH (>= high_threshold): Rủi ro cao -> Hành động: 'warn' (chặn và hiển thị warning page)
-        - MEDIUM (>= medium_threshold): Đáng ngờ -> Hành động: 'caution' (hiển thị soft badge vàng)
-        - LOW (< medium_threshold): Bình thường -> Hành động: 'allow' (cho phép điều hướng mượt)
-        """
-        if score >= self.high_threshold:
-            return "high", "warn"
-        if score >= self.medium_threshold:
-            return "medium", "caution"
-        return "low", "allow"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "high": self.high_threshold,
-            "medium": self.medium_threshold,
-            "actions": {
-                "high": "warn",
-                "medium": "caution",
-                "low": "allow",
-            },
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> RiskPolicyConfig:
-        return cls(
-            high_threshold=float(data.get("high", 0.75)),
-            medium_threshold=float(data.get("medium", 0.45)),
         )

@@ -1,33 +1,9 @@
-"""Hợp đồng đặc trưng dùng chung giữa training và serving.
-
-`lexical-v3` giữ nguyên 25 cột của v2 để không làm thay đổi semantics mô hình,
-nhưng đóng băng thêm phiên bản của các tài nguyên bên ngoài. `lexical-v4` giữ
-nguyên số cột nhưng khóa semantics brand matching theo token/label để tránh
-false positive như `pineapple.example.com`.
-"""
+"""Hợp đồng đặc trưng duy nhất dùng chung cho train và serving."""
 
 from __future__ import annotations
 
-# Legacy v1 contract (12 features)
-FEATURE_CONTRACT_V1 = "lexical-v1"
-FEATURE_COLUMNS_V1: tuple[str, ...] = (
-    "Having_IP",
-    "Tiny_URL",
-    "TLD_Length",
-    "Digit_Count",
-    "Dot_Count",
-    "At_Count",
-    "Hyphen_Count",
-    "Per_Count",
-    "Equal_Count",
-    "Redirection",
-    "Depth",
-    "FD_Length",
-)
-
-# Canonical v2 contract (25 features in 4 groups)
-FEATURE_CONTRACT_V2 = "lexical-v2"
-FEATURE_COLUMNS_V2: tuple[str, ...] = (
+FEATURE_CONTRACT_VERSION = "lexical-v4"
+FEATURE_COLUMNS: tuple[str, ...] = (
     # Group A: Lexical Structure
     "url_length",
     "hostname_length",
@@ -58,17 +34,3 @@ FEATURE_COLUMNS_V2: tuple[str, ...] = (
     "uses_shortening_service",
     "has_redirection_pattern",
 )
-
-# V3 đóng băng semantics 25 feature của v2 và bổ sung resource contract.
-# Không sao chép tuple để tránh hai danh sách cột bị lệch theo thời gian.
-FEATURE_CONTRACT_V3 = "lexical-v3"
-FEATURE_COLUMNS_V3: tuple[str, ...] = FEATURE_COLUMNS_V2
-
-# V4 thay đổi semantics nhận diện brand nhưng giữ nguyên số lượng/thứ tự cột.
-FEATURE_CONTRACT_V4 = "lexical-v4"
-FEATURE_COLUMNS_V4: tuple[str, ...] = FEATURE_COLUMNS_V2
-
-# Hợp đồng mặc định mới cho pipeline huấn luyện. Artifact lexical-v2 cũ vẫn
-# được loader hỗ trợ để có thể rollback an toàn.
-FEATURE_CONTRACT_VERSION = FEATURE_CONTRACT_V4
-FEATURE_COLUMNS = FEATURE_COLUMNS_V4

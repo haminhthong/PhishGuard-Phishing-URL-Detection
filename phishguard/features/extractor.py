@@ -12,15 +12,7 @@ from urllib.parse import ParseResult, urlparse
 
 from tld import get_fld, get_tld
 
-from .contract import (
-    FEATURE_COLUMNS_V1,
-    FEATURE_COLUMNS_V2,
-    FEATURE_CONTRACT_V1,
-    FEATURE_CONTRACT_V2,
-    FEATURE_CONTRACT_V3,
-    FEATURE_CONTRACT_V4,
-    FEATURE_CONTRACT_VERSION,
-)
+from .contract import FEATURE_COLUMNS, FEATURE_CONTRACT_VERSION
 from .resources import RESOURCE_BUNDLE, ResourceBundle
 
 
@@ -203,40 +195,21 @@ def detect_brand_abuse(
     return brand_in_sub, brand_in_path, brand_not_reg
 
 
-def extract_features_v1(url: str, resources: ResourceBundle = RESOURCE_BUNDLE) -> dict[str, int]:
-    """Tạo đúng 12 đặc trưng theo hợp đồng lexical-v1 (Legacy)."""
-    tld_len, _ = tld_info(url, resources)
-    features = {
-        "Having_IP": has_ip_address(url),
-        "Tiny_URL": uses_shortening_service(url, resources),
-        "TLD_Length": tld_len,
-        "Digit_Count": sum(character.isdigit() for character in url),
-        "Dot_Count": url.count("."),
-        "At_Count": url.count("@"),
-        "Hyphen_Count": url.count("-"),
-        "Per_Count": url.count("%"),
-        "Equal_Count": url.count("="),
-        "Redirection": has_redirection_pattern(url),
-        "Depth": path_depth(url),
-        "FD_Length": first_directory_length(url),
-    }
-    assert tuple(features) == FEATURE_COLUMNS_V1, "Sai thứ tự hợp đồng đặc trưng v1"
-    return features
-
-
-def extract_features_v2(
+def extract_features(
     url: str,
     resources: ResourceBundle = RESOURCE_BUNDLE,
     *,
-    strict_brand_matching: bool = False,
+    contract: str = FEATURE_CONTRACT_VERSION,
 ) -> dict[str, int | float]:
     """
-    Tạo 25 đặc trưng lexical-v2/v3/v4 phân thành 4 nhóm:
+    Tạo 25 đặc trưng lexical-v4 phân thành 4 nhóm:
     A. Cấu trúc Lexical & Ratios
     B. Host & Domain
     C. Brand Impersonation
     D. Heuristics & Redirection
     """
+    if contract != FEATURE_CONTRACT_VERSION:
+        raise ValueError(f"Chỉ hỗ trợ feature contract {FEATURE_CONTRACT_VERSION}")
     parsed = parse_url(url)
     hostname = (parsed.hostname or "").lower().rstrip(".")
     path = parsed.path or ""
@@ -266,7 +239,7 @@ def extract_features_v2(
 
     # Tín hiệu mạo danh thương hiệu
     brand_sub, brand_path, brand_not_reg = detect_brand_abuse(
-        url, resources, strict_brand_matching=strict_brand_matching
+        url, resources, strict_brand_matching=True
     )
 
     features = {
@@ -301,41 +274,19 @@ def extract_features_v2(
         "has_redirection_pattern": has_redirection_pattern(url),
     }
 
-    assert tuple(features) == FEATURE_COLUMNS_V2, "Sai thứ tự hợp đồng đặc trưng v2"
+    assert tuple(features) == FEATURE_COLUMNS, "Sai thứ tự hợp đồng lexical-v4"
     return features
-
-
-def extract_features(
-    url: str,
-    contract: str = FEATURE_CONTRACT_VERSION,
-    resources: ResourceBundle = RESOURCE_BUNDLE,
-) -> dict[str, Any]:
-    """
-    Hàm trích xuất đặc trưng chính với cơ chế Fail-Fast bảo vệ an toàn runtime:
-    - Nếu contract là FEATURE_CONTRACT_V1: trả về 12 đặc trưng legacy.
-    - Nếu contract là FEATURE_CONTRACT_V2/V3: trả về 25 đặc trưng legacy/canonical.
-    - Nếu contract là FEATURE_CONTRACT_V4: trả về 25 đặc trưng với brand matching theo token.
-    - Nếu contract không hợp lệ: LẬP TỨC crash bằng ValueError, không đoán mò hay fallback ngầm.
-    """
-    if contract == FEATURE_CONTRACT_V1:
-        return extract_features_v1(url, resources)
-    if contract in {FEATURE_CONTRACT_V2, FEATURE_CONTRACT_V3}:
-        return extract_features_v2(url, resources)
-    if contract == FEATURE_CONTRACT_V4:
-        return extract_features_v2(url, resources, strict_brand_matching=True)
-    raise ValueError(
-        f"Unsupported feature contract: '{contract}'. "
-        f"Only supported contracts are: {[FEATURE_CONTRACT_V1, FEATURE_CONTRACT_V2, FEATURE_CONTRACT_V3, FEATURE_CONTRACT_V4]}"
-    )
 
 
 @dataclass(frozen=True)
 class FeatureExtractor:
-    """Extractor gắn với contract và resource của đúng release đang chạy."""
+    """Extractor gắn với contract và resource runtime đã kiểm tra."""
 
     contract: str = FEATURE_CONTRACT_VERSION
     resources: ResourceBundle = RESOURCE_BUNDLE
 
     def extract(self, url: str) -> dict[str, Any]:
         """Trích xuất feature bằng resource đã đóng băng, không đọc global runtime."""
-        return extract_features(url, contract=self.contract, resources=self.resources)
+        if self.contract != FEATURE_CONTRACT_VERSION:
+            raise ValueError(f"Chỉ hỗ trợ feature contract {FEATURE_CONTRACT_VERSION}")
+        return extract_features(url, resources=self.resources)

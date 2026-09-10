@@ -8,15 +8,8 @@ split:
   train: 0.60
   validation: 0.15
   calibration: 0.10
-  policy_validation: 0.05
+  threshold_validation: 0.05
   test: 0.10
-
-model_selection:
-  primary_objective: pr_auc
-  guardrails:
-    min_recall: 0.80
-    max_fpr: 0.01
-    max_latency_p95_ms: 5.0
 
 model:
   type: XGBClassifier
@@ -30,42 +23,11 @@ calibration:
   method: isotonic # isotonic | sigmoid
 
 threshold_policy:
-  policy_version: browser-risk-v2
+  policy_version: browser-risk-v1
   caution_max_fpr: 0.02
   block_max_fpr: 0.005
   caution_min_recall: 0.90
   block_min_recall: 0.80
-  asymmetric_cost:
-    cost_fn: 10.0
-    cost_fp: 1.0
-promotion_policy:
-  validation:
-    min_pr_auc: 0.85
-    min_recall: 0.80
-    max_fpr: 0.01
-  calibration:
-    max_ece: 0.05
-    operating_max_fpr: 0.005
-  serving:
-    max_model_p95_ms: 5.0
-
-release_gates:
-  ranking:
-    min_pr_auc: 0.90
-  block:
-    max_fpr: 0.005
-    min_recall: 0.80
-  caution:
-    max_fpr: 0.02
-    min_recall: 0.90
-  calibration:
-    max_ece: 0.05
-  latency:
-    max_model_p95_ms: 10.0
-    max_e2e_p95_ms: 50.0
-  integrity:
-    domain_overlap: 0
-    canonical_url_overlap: 0
 
 security_stress:
   min_block_recall: 0.80

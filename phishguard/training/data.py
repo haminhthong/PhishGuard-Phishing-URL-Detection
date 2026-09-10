@@ -55,47 +55,20 @@ class SplitManifest:
     val_positive_rate: float
     cal_positive_rate: float
     test_positive_rate: float
-    policy_validation_rows: int = 0
-    policy_validation_domains: int = 0
-    policy_positive_rate: float = 0.0
-    strategy: str = "stratified-group-disjoint"
+    threshold_validation_rows: int
+    threshold_validation_domains: int
+    threshold_positive_rate: float
+    strategy: str = "stratified-registered-domain-5way"
 
 
 @dataclass(frozen=True)
 class DatasetSplits:
-    """Ba tập độc lập; test chỉ dùng một lần sau khi chọn mô hình."""
-
-    train: pd.DataFrame
-    validation: pd.DataFrame
-    test: pd.DataFrame
-
-
-@dataclass(frozen=True)
-class FourWayDatasetSplits:
-    """Bốn tập độc lập: Train (65%) / Validation (15%) / Calibration (10%) / Test (10%)."""
+    """Năm tập domain-disjoint cho một pipeline train/evaluate duy nhất."""
 
     train: pd.DataFrame
     validation: pd.DataFrame
     calibration: pd.DataFrame
-    test: pd.DataFrame
-
-
-@dataclass(frozen=True)
-class FiveWayDatasetSplits:
-    """Train/Validation/Calibration/Policy Validation/Locked Test."""
-
-    train: pd.DataFrame
-    validation: pd.DataFrame
-    calibration: pd.DataFrame
-    policy_validation: pd.DataFrame
-    test: pd.DataFrame
-
-
-@dataclass(frozen=True)
-class TemporalSplits:
-    """Tập train (quá khứ) và test (tương lai) theo thời gian ghi nhận (Protocol B)."""
-
-    train: pd.DataFrame
+    threshold_validation: pd.DataFrame
     test: pd.DataFrame
 
 
@@ -110,7 +83,7 @@ def compute_sha256(file_path: str | Path) -> str:
 
 def normalize_url(url: str) -> str:
     """
-    Chuẩn hóa URL thành dạng canonical phục vụ deduplication, cache key và conflict audit.
+    Chuẩn hóa URL thành dạng canonical phục vụ deduplication và conflict audit.
     LƯU Ý: Không dùng URL này để trích xuất đặc trưng bảo mật; đặc trưng luôn lấy từ raw_url.
     """
     if not isinstance(url, str):
@@ -258,91 +231,19 @@ def clean_dataset(frame: pd.DataFrame) -> pd.DataFrame:
 def split_by_domain(
     frame: pd.DataFrame,
     *,
-    test_size: float = 0.15,
-    validation_size: float = 0.15,
-    random_state: int = 42,
-) -> DatasetSplits:
-    """Chia 70/15/15 theo domain và kiểm tra không có domain hay URL giao nhau giữa các tập."""
-    if test_size <= 0 or validation_size <= 0 or test_size + validation_size >= 1:
-        raise ValueError("Tỷ lệ validation/test không hợp lệ")
-
-    cleaned = frame.copy()
-    if "domain" not in cleaned.columns:
-        cleaned = clean_dataset(cleaned)
-
-    allocations = _stratified_group_allocation(
-        cleaned,
-        {
-            "train": 1.0 - test_size - validation_size,
-            "validation": validation_size,
-            "test": test_size,
-        },
-        random_state=random_state,
-    )
-    splits = DatasetSplits(**allocations)
-    _assert_disjoint_splits(splits)
-    return splits
-
-
-def split_by_domain_4way(
-    frame: pd.DataFrame,
-    *,
-    test_size: float = 0.10,
-    calibration_size: float = 0.10,
-    validation_size: float = 0.15,
-    random_state: int = 42,
-) -> FourWayDatasetSplits:
-    """
-    Chia 4 tập theo domain với zero overlap:
-    Train: Model training (65%)
-    Validation: Model selection & hyperparameter tuning (15%)
-    Calibration: Probability calibration (Isotonic/Sigmoid) & threshold selection (10%)
-    Test: Final untouched evaluation once (10%)
-    """
-    total_holdout = test_size + calibration_size + validation_size
-    if total_holdout >= 1.0 or any(s <= 0 for s in (test_size, calibration_size, validation_size)):
-        raise ValueError("Tỷ lệ chia tập 4-way không hợp lệ")
-
-    cleaned = frame.copy()
-    if "domain" not in cleaned.columns:
-        cleaned = clean_dataset(cleaned)
-
-    allocations = _stratified_group_allocation(
-        cleaned,
-        {
-            "train": 1.0 - test_size - calibration_size - validation_size,
-            "validation": validation_size,
-            "calibration": calibration_size,
-            "test": test_size,
-        },
-        random_state=random_state,
-    )
-    splits = FourWayDatasetSplits(**allocations)
-    _assert_disjoint_splits_4way(splits)
-    return splits
-
-
-def split_by_domain_5way(
-    frame: pd.DataFrame,
-    *,
     train_size: float = 0.60,
     validation_size: float = 0.15,
     calibration_size: float = 0.10,
-    policy_validation_size: float = 0.05,
+    threshold_validation_size: float = 0.05,
     test_size: float = 0.10,
     random_state: int = 42,
-) -> FiveWayDatasetSplits:
-    """Chia domain-disjoint và gần stratified theo lifecycle 5 tập.
-
-    Mỗi registered domain được gán nguyên vẹn vào đúng một split. Bộ điều phối
-    nhóm tối ưu đồng thời tỷ lệ số dòng và tỷ lệ phishing; không dùng
-    `GroupShuffleSplit` ngẫu nhiên vì nó làm prior giữa các tập lệch mạnh.
-    """
+) -> DatasetSplits:
+    """Chia train/validation/calibration/threshold-validation/test theo domain."""
     sizes = {
         "train": train_size,
         "validation": validation_size,
         "calibration": calibration_size,
-        "policy_validation": policy_validation_size,
+        "threshold_validation": threshold_validation_size,
         "test": test_size,
     }
     if any(value <= 0 for value in sizes.values()) or abs(sum(sizes.values()) - 1.0) > 1e-9:
@@ -352,8 +253,8 @@ def split_by_domain_5way(
     if "domain" not in cleaned.columns:
         cleaned = clean_dataset(cleaned)
     allocations = _stratified_group_allocation(cleaned, sizes, random_state=random_state)
-    splits = FiveWayDatasetSplits(**allocations)
-    _assert_disjoint_splits_5way(splits)
+    splits = DatasetSplits(**allocations)
+    _assert_disjoint_splits(splits)
     return splits
 
 
@@ -439,187 +340,46 @@ def _stratified_group_allocation(
 
 
 def create_split_manifest(
-    splits: FourWayDatasetSplits | FiveWayDatasetSplits,
+    splits: DatasetSplits,
     seed: int = 42,
 ) -> SplitManifest:
-    """Tạo manifest thống nhất cho lifecycle 4-way cũ hoặc 5-way mới."""
-    policy_validation = getattr(splits, "policy_validation", None)
+    """Tạo manifest kiểm tra tỷ lệ, domain và nhãn của năm tập."""
     return SplitManifest(
         seed=seed,
         train_rows=len(splits.train),
         validation_rows=len(splits.validation),
         calibration_rows=len(splits.calibration),
+        threshold_validation_rows=len(splits.threshold_validation),
         test_rows=len(splits.test),
         train_domains=splits.train["domain"].nunique(),
         validation_domains=splits.validation["domain"].nunique(),
         calibration_domains=splits.calibration["domain"].nunique(),
+        threshold_validation_domains=splits.threshold_validation["domain"].nunique(),
         test_domains=splits.test["domain"].nunique(),
         train_positive_rate=round(float(splits.train["label"].mean()), 4),
         val_positive_rate=round(float(splits.validation["label"].mean()), 4),
         cal_positive_rate=round(float(splits.calibration["label"].mean()), 4),
+        threshold_positive_rate=round(float(splits.threshold_validation["label"].mean()), 4),
         test_positive_rate=round(float(splits.test["label"].mean()), 4),
-        policy_validation_rows=len(policy_validation) if policy_validation is not None else 0,
-        policy_validation_domains=(
-            policy_validation["domain"].nunique() if policy_validation is not None else 0
-        ),
-        policy_positive_rate=(
-            round(float(policy_validation["label"].mean()), 4)
-            if policy_validation is not None
-            else 0.0
-        ),
-        strategy="stratified-group-disjoint-5way"
-        if policy_validation is not None
-        else "stratified-group-disjoint-4way",
+        strategy="stratified-registered-domain-5way",
     )
 
 
 def _assert_disjoint_splits(splits: DatasetSplits) -> None:
-    """Kiểm tra nghiêm ngặt không có domain hoặc URL trùng lắp giữa Train/Validation/Test."""
-    domain_sets = {
-        "train": set(splits.train["domain"]),
-        "validation": set(splits.validation["domain"]),
-        "test": set(splits.test["domain"]),
-    }
-    url_sets = {
-        "train": set(
-            splits.train["raw_url"] if "raw_url" in splits.train.columns else splits.train["url"]
-        ),
-        "validation": set(
-            splits.validation["raw_url"]
-            if "raw_url" in splits.validation.columns
-            else splits.validation["url"]
-        ),
-        "test": set(
-            splits.test["raw_url"] if "raw_url" in splits.test.columns else splits.test["url"]
-        ),
-    }
-    for n1 in ["train", "validation"]:
-        for n2 in ["validation", "test"]:
-            if n1 != n2:
-                assert domain_sets[n1].isdisjoint(domain_sets[n2]), (
-                    f"Leakage: Domain giao giữa {n1} và {n2}!"
-                )
-                assert url_sets[n1].isdisjoint(url_sets[n2]), (
-                    f"Leakage: URL giao giữa {n1} và {n2}!"
-                )
-
-
-def _assert_disjoint_splits_4way(splits: FourWayDatasetSplits) -> None:
-    """Kiểm tra nghiêm ngặt không có domain hoặc URL trùng lắp giữa 4 tập."""
-    domain_sets = {
-        "train": set(splits.train["domain"]),
-        "validation": set(splits.validation["domain"]),
-        "calibration": set(splits.calibration["domain"]),
-        "test": set(splits.test["domain"]),
-    }
-    url_sets = {
-        "train": set(
-            splits.train["raw_url"] if "raw_url" in splits.train.columns else splits.train["url"]
-        ),
-        "validation": set(
-            splits.validation["raw_url"]
-            if "raw_url" in splits.validation.columns
-            else splits.validation["url"]
-        ),
-        "calibration": set(
-            splits.calibration["raw_url"]
-            if "raw_url" in splits.calibration.columns
-            else splits.calibration["url"]
-        ),
-        "test": set(
-            splits.test["raw_url"] if "raw_url" in splits.test.columns else splits.test["url"]
-        ),
-    }
-
-    names = list(domain_sets.keys())
-    for i in range(len(names)):
-        for j in range(i + 1, len(names)):
-            n1, n2 = names[i], names[j]
-            assert domain_sets[n1].isdisjoint(domain_sets[n2]), (
-                f"Leakage: Domain giao giữa {n1} và {n2}!"
-            )
-            assert url_sets[n1].isdisjoint(url_sets[n2]), f"Leakage: URL giao giữa {n1} và {n2}!"
-
-
-def _assert_disjoint_splits_5way(splits: FiveWayDatasetSplits) -> None:
-    """Kiểm tra domain và canonical/raw URL không giao giữa 5 tập."""
+    """Bảo đảm registered domain và canonical URL không rò rỉ giữa các tập."""
     frames = {
         "train": splits.train,
         "validation": splits.validation,
         "calibration": splits.calibration,
-        "policy_validation": splits.policy_validation,
+        "threshold_validation": splits.threshold_validation,
         "test": splits.test,
     }
-    domains = {name: set(df["domain"]) for name, df in frames.items()}
-    urls = {
-        name: set(df["raw_url"] if "raw_url" in df.columns else df["url"])
-        for name, df in frames.items()
-    }
+    domains = {name: set(frame["domain"]) for name, frame in frames.items()}
+    urls = {name: set(frame["canonical_url"]) for name, frame in frames.items()}
     names = list(frames)
     for index, first in enumerate(names):
         for second in names[index + 1 :]:
             if not domains[first].isdisjoint(domains[second]):
-                raise AssertionError(f"Leakage: Domain giao giữa {first} và {second}!")
+                raise AssertionError(f"Leakage: domain giao giữa {first} và {second}")
             if not urls[first].isdisjoint(urls[second]):
-                raise AssertionError(f"Leakage: URL giao giữa {first} và {second}!")
-
-
-def temporal_split_protocol_b(
-    frame: pd.DataFrame,
-    *,
-    test_ratio: float = 0.20,
-    time_col: str = "submission_time",
-) -> TemporalSplits:
-    """
-    Protocol B - Đánh giá Temporal Robustness (đo concept drift):
-    Huấn luyện trên các chiến dịch cũ (quá khứ) và kiểm thử trên các chiến dịch mới hơn (tương lai).
-    """
-    if time_col not in frame.columns:
-        raise ValueError(f"Dữ liệu không chứa cột thời gian {time_col}")
-
-    frame_with_time = frame.copy()
-    frame_with_time["_parsed_time"] = pd.to_datetime(frame_with_time[time_col], errors="coerce")
-    valid_time_df = (
-        frame_with_time.dropna(subset=["_parsed_time"])
-        .sort_values("_parsed_time")
-        .reset_index(drop=True)
-    )
-
-    split_idx = int(len(valid_time_df) * (1.0 - test_ratio))
-    train = valid_time_df.iloc[:split_idx].drop(columns=["_parsed_time"]).reset_index(drop=True)
-    test = valid_time_df.iloc[split_idx:].drop(columns=["_parsed_time"]).reset_index(drop=True)
-
-    return TemporalSplits(train=train, test=test)
-
-
-def temporal_split_future_unseen_domains(
-    frame: pd.DataFrame,
-    *,
-    test_ratio: float = 0.20,
-    time_col: str = "submission_time",
-) -> TemporalSplits:
-    """Tách future benchmark theo first-seen domain, không để domain overlap.
-
-    Protocol này ưu tiên tính chất unseen-domain hơn tỷ lệ dòng chính xác: các
-    domain có thời điểm xuất hiện đầu tiên muộn nhất được đưa trọn vào future.
-    """
-    if not 0.0 < test_ratio < 1.0:
-        raise ValueError("test_ratio phải nằm trong khoảng (0, 1)")
-    if time_col not in frame.columns:
-        raise ValueError(f"Dữ liệu không chứa cột thời gian {time_col}")
-    working = frame.copy()
-    working["_parsed_time"] = pd.to_datetime(working[time_col], errors="coerce", utc=True)
-    working = working.dropna(subset=["_parsed_time"]).copy()
-    if "domain" not in working.columns:
-        working["domain"] = working["url"].map(registered_domain)
-    first_seen = working.groupby("domain")["_parsed_time"].min().sort_values(kind="stable")
-    test_domain_count = max(1, int(round(len(first_seen) * test_ratio)))
-    future_domains = set(first_seen.tail(test_domain_count).index)
-    test_mask = working["domain"].isin(future_domains)
-    train = working[~test_mask].sort_values("_parsed_time")
-    test = working[test_mask].sort_values("_parsed_time")
-    train = train.drop(columns=["_parsed_time"]).reset_index(drop=True)
-    test = test.drop(columns=["_parsed_time"]).reset_index(drop=True)
-    if set(train["domain"]).intersection(test["domain"]):
-        raise AssertionError("Future benchmark bị overlap registered domain")
-    return TemporalSplits(train=train, test=test)
+                raise AssertionError(f"Leakage: URL giao giữa {first} và {second}")

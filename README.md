@@ -1,149 +1,132 @@
 # PhishGuard ML
 
 [![CI](https://github.com/haminhthong/Phishguard-Url-Phishing-Detection/actions/workflows/ci.yml/badge.svg)](https://github.com/haminhthong/Phishguard-Url-Phishing-Detection/actions/workflows/ci.yml)
-
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.116%2B-009688?logo=fastapi&logoColor=white)
 ![XGBoost](https://img.shields.io/badge/XGBoost-Native%20JSON-F7931E?logo=xgboost&logoColor=white)
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
-![Ruff](https://img.shields.io/badge/lint-Ruff-D7FF64?logo=ruff&logoColor=111827)
 ![License](https://img.shields.io/badge/license-MIT-22C55E)
 
-> **Tài liệu canonical:** README này mô tả đúng code, cấu hình và release flow hiện
-> tại. Metric không ghi cố định trong README; đọc từ report của release tương ứng.
+PhishGuard ML là hệ thống phát hiện rủi ro phishing theo URL, chạy local-first. Chrome Extension gửi URL đến FastAPI trên `127.0.0.1`; API dùng đúng một feature contract `lexical-v4`, XGBoost Native JSON, calibrator và `ActionPolicy` để trả `ALLOW`, `CAUTION` hoặc `BLOCK`.
+
+README này là tài liệu canonical: mọi đường dẫn, tên artifact, endpoint và lệnh bên dưới phải khớp source hiện tại.
 
 ## Bài Toán & Phạm Vi Ứng Dụng (Problem & Scope)
 
-PhishGuard ML là hệ thống phát hiện rủi ro phishing **URL-only**, chạy local-first.
-Chrome Extension gửi URL đến FastAPI trên `127.0.0.1`; API trích xuất 25 đặc
-trưng `lexical-v4`, chấm điểm bằng XGBoost Native JSON, hiệu chỉnh xác suất và
-trả đúng một hành động `ALLOW`, `CAUTION` hoặc `BLOCK`.
+### Trong phạm vi
 
-Trong phạm vi: phân tích cấu trúc URL, hostname/path/query, IP, Punycode, TLD
-đáng ngờ, mạo danh thương hiệu, shortener và mẫu chuyển hướng; đánh giá trên
-registered domain chưa từng xuất hiện trong train; cảnh báo qua Chrome Extension.
+- Phân tích cấu trúc URL: độ dài, entropy, ký tự đặc biệt, path/query, IP, Punycode, suspicious TLD và mẫu chuyển hướng.
+- Nhận diện mạo danh thương hiệu trong subdomain/path bằng dictionary local.
+- Chấm điểm URL trong bộ nhớ, không gọi DNS, Whois, Safe Browsing hay dịch vụ reputation bên ngoài.
+- Chia dữ liệu theo `registered_domain` để đánh giá unseen-domain và tránh leakage.
+- Cảnh báo trong Chrome Extension bằng ba hành động thống nhất.
 
-Ngoài phạm vi: HTML/DOM/JavaScript, file tải xuống, DNS/BGP/TLS, reputation online,
-domain hợp lệ đã bị chiếm quyền nhưng URL tự nhiên và phishing zero-day không có
-dấu hiệu lexical. Đây là lớp bảo vệ Tier 1, không thay thế antivirus hoặc Safe
-Browsing.
+### Ngoài phạm vi
 
-### Flowchart duy nhất chi phối toàn bộ dự án
+Hệ thống không phân tích HTML/DOM/JavaScript, file tải xuống, DNS/BGP/TLS, nội dung trang, domain hợp lệ đã bị chiếm quyền nhưng có URL tự nhiên, hoặc phishing zero-day không có dấu hiệu lexical. Đây là lớp bảo vệ URL tier 1, không thay thế antivirus hay Safe Browsing.
 
-Mọi đường đi production phải kết thúc ở release được promote. Không có fallback
-sang model legacy.
+## Luồng logic, luồng data và pipeline kỹ thuật
+
+Flowchart dưới đây là quy trình duy nhất chi phối mã nguồn, cấu hình, artifact và báo cáo. `raw_url` chỉ dùng để tạo feature; `canonical_url` chỉ dùng làm khóa dedup/conflict và kiểm tra leakage.
 
 ```mermaid
 flowchart TD
-    subgraph ONLINE[Luồng online - bảo vệ trình duyệt]
-        NAV[Chrome navigation HTTP/HTTPS<br/>full URL trong bộ nhớ] --> EXT[Extension service worker]
-        EXT -->|POST /v1/score| API[FastAPI + Pydantic validation]
-        API --> PTR[releases/current_release.json]
-        PTR --> BUNDLE[Release bundle bất biến<br/>model + calibration + policy + resources]
-        BUNDLE --> FE[FeatureExtractor lexical-v4<br/>25 cột đúng thứ tự contract]
-        FE --> RAW[XGBoost raw score]
-        RAW --> CAL[ProbabilityCalibrator<br/>calibration.json]
-        CAL --> SCORE[Calibrated risk_score 0..1]
-        SCORE --> POLICY[ActionPolicy browser-risk-v2<br/>nguồn sự thật duy nhất cho ngưỡng]
-        POLICY --> DECISION{ALLOW / CAUTION / BLOCK}
-        DECISION -->|ALLOW| ALLOW[Badge ALLOW<br/>tiếp tục navigation]
-        DECISION -->|CAUTION| CAUTION[Badge CAUTION<br/>cảnh báo mềm, không tự chặn]
-        DECISION -->|BLOCK| BLOCK[window.stop + warning.html<br/>Allow once hoặc Whitelist]
-        API --> RESP[Canonical response<br/>risk_score + decision + signals + versions]
+    subgraph ONLINE[Luồng online]
+        NAV[Chrome navigation URL] --> EXT[Extension service worker]
+        EXT -->|POST /v1/score| API[FastAPI + Pydantic]
+        API --> VALIDATE[HTTP/HTTPS, hostname, port, length]
+        VALIDATE --> RAW[Giữ nguyên raw_url]
+        RAW --> FEATURES[FeatureExtractor lexical-v4<br/>25 cột cố định]
+        FEATURES --> MODEL[XGBoost Native JSON<br/>artifacts/model.json]
+        MODEL --> CAL[ProbabilityCalibrator<br/>artifacts/calibration.json]
+        CAL --> POLICY[ActionPolicy<br/>artifacts/thresholds.json]
+        POLICY --> DECISION{risk_score}
+        DECISION -->|< caution| ALLOW[ALLOW: tiếp tục trang]
+        DECISION -->|caution..block| CAUTION[CAUTION: cảnh báo mềm]
+        DECISION -->|>= block| BLOCK[BLOCK: warning.html + window.stop]
+        ALLOW --> RESP[JSON response]
+        CAUTION --> RESP
+        BLOCK --> RESP
         RESP --> EXT
         EXT --> HISTORY[chrome.storage.local<br/>origin + pathname, bỏ query/hash]
-        API -. cache key .-> CACHE[SHA-256 URL + model + feature + policy]
     end
 
-    subgraph OFFLINE[Luồng offline - dữ liệu, train và phát hành]
-        RAWDATA[Data/legit_url.csv<br/>Data/verified_online.csv] --> AUDIT[scripts.audit_data<br/>DatasetManifest + quality report]
-        AUDIT --> CLEAN[Giữ raw_url<br/>canonical dedup + exact conflict audit]
+    subgraph OFFLINE[Luồng offline]
+        INPUT[Data/legit_url.csv +<br/>Data/verified_online.csv] --> AUDIT[scripts.audit_data<br/>kiểm tra nguồn và nhãn]
+        AUDIT --> CLEAN[clean_dataset<br/>canonical dedup + exact conflict removal]
         CLEAN --> SPLIT[scripts.prepare_splits<br/>registered-domain grouped 5-way]
-        SPLIT --> DEV[Train 60% + Validation 15%]
-        SPLIT --> CALDATA[Calibration 10%]
-        SPLIT --> POLVAL[Policy Validation 5%]
-        SPLIT --> LOCKED[Locked Test 10%<br/>report-only]
-        DEV --> TRAIN[scripts.train<br/>Rule/LR baseline + XGBoost canonical]
-        CALDATA --> TRAIN
-        POLVAL --> TRAIN
-        TRAIN --> CAND[releases/candidates/phishguard-version<br/>model + contract + calibration + policy + resources]
-        CAND --> EVAL[scripts.evaluate<br/>Locked Test một lần + hard slices]
-        LOCKED --> EVAL
-        CAND --> STRESS[scripts.security_stress<br/>hard_locked_test.jsonl]
-        EVAL --> GATES{Release gates đạt?}
-        STRESS --> GATES
-        GATES -->|Không| REJECT[Reject candidate<br/>current_release.json không đổi]
-        GATES -->|Có| PROMOTE[scripts.promote_release<br/>atomic pointer update duy nhất]
-        PROMOTE --> PTR
-        TRAIN --> REPORTS[artifacts/ và reports/version<br/>manifest + checksum + metrics]
-        EVAL --> REPORTS
-        STRESS --> REPORTS
-        CONFIG[configs/train_config.yaml] -. controls .-> AUDIT
-        CONFIG -. controls .-> SPLIT
-        CONFIG -. controls .-> TRAIN
-        CONFIG -. controls .-> GATES
+        SPLIT --> TRAIN[train 60%]
+        SPLIT --> VALIDATE[validation 15%]
+        SPLIT --> CALDATA[calibration 10%]
+        SPLIT --> THRESHOLD[threshold_validation 5%]
+        SPLIT --> TEST[locked test 10%]
+        TRAIN --> FIT[fit XGBoost + refit train+validation]
+        VALIDATE --> FIT
+        CALDATA --> CALIBRATE[fit calibrator]
+        THRESHOLD --> SELECT[select caution/block thresholds]
+        FIT --> ARTIFACTS[artifacts/model.json + metadata.json]
+        CALIBRATE --> ARTIFACTS
+        SELECT --> ARTIFACTS
+        ARTIFACTS --> EVALUATE[scripts.evaluate<br/>locked test + hard slices]
+        ARTIFACTS --> STRESS[scripts.security_stress<br/>block recall + benign block rate]
+        EVALUATE --> REPORTS[reports/evaluation.json]
+        STRESS --> GATE{security gate đạt?}
+        GATE -->|Không| STOP[Không vận hành artifact]
+        GATE -->|Có| VERIFY[scripts.promote_release<br/>integrity verification]
+        CONFIG[configs/train_config.yaml] -. controls .-> SPLIT
+        CONFIG -. controls .-> FIT
+        CONFIG -. controls .-> SELECT
+        CONFIG -. controls .-> GATE
     end
-
-    FAIL[Thiếu release, sai checksum,<br/>sai contract hoặc resource] -. fail-closed .-> API
 ```
 
-### Các bất biến phải giữ
+Các bất biến quan trọng:
 
-1. Giữ nguyên `raw_url` khi trích xuất feature; `canonical_url` chỉ dùng cho
-   deduplication và conflict audit. Cache băm URL đầu vào cùng phiên bản model,
-   feature contract và policy; không dùng canonical URL của pipeline dữ liệu.
-2. Loại exact canonical conflict nhưng giữ registered domain có cả nhãn legit và
-   phishing để bảo toàn hard cases shared-hosting.
-3. Năm split không giao nhau theo registered domain và canonical URL.
-4. Calibration chỉ fit calibrator; `caution_threshold` và `block_threshold`
-   chỉ chọn trên `policy_validation` và nằm duy nhất trong `action_policy.json`.
-5. Locked Test không được dùng để chọn model, calibrator hoặc policy.
-6. Train/evaluate/stress không đổi production pointer; chỉ `promote_release.py`
-   được ghi `releases/current_release.json`.
-7. API fail-closed khi thiếu pointer, sai metadata/checksum/resource/contract.
+1. Không trích xuất feature từ URL đã canonicalize; query và fragment của `raw_url` được giữ khi tính feature.
+2. Exact canonical conflict bị loại; domain có URL legit và phishing khác nhau được giữ lại rồi gán nguyên domain vào một split.
+3. Năm split không giao nhau theo `registered_domain` và `canonical_url`; locked test không tham gia fit/calibration/threshold.
+4. Threshold chỉ được chọn ở `threshold_validation`; API không tự suy ra ngưỡng từ request.
+5. API fail-closed khi thiếu model, metadata, calibration, threshold, checksum hoặc resource contract.
 
 ## Cấu Trúc Thư Mục Dự Án (Project Structure)
 
 ```text
 PhishGuard ML/
-├── API/                         # FastAPI routes, release loader, predictor, cache
-│   ├── routes/                  # prediction, health, model-info, stats
-│   └── services/                # model_loader, predictor, cache
-├── Extension/                  # Chrome Manifest V3 worker/content/popup/warning
-├── phishguard/                  # thư viện dùng chung cho train và serving
-│   ├── calibration/             # ProbabilityCalibrator và ActionPolicy
-│   ├── features/                # feature contract, extractor, resources
-│   └── training/                # dữ liệu, baseline, metrics
-├── scripts/                     # audit, split, train, evaluate, stress, promote
-├── configs/train_config.yaml    # version, split, model, policy, release gates
+├── API/                         # FastAPI app, validation, loader, predictor
+├── Extension/                  # Chrome Manifest V3: background/content/popup/warning
+├── phishguard/
+│   ├── features/                # lexical-v4 contract, extractor, resources
+│   ├── calibration/             # probability calibrator và ActionPolicy
+│   └── training/                # cleaning, grouped split, metrics, baseline
+├── scripts/
+│   ├── audit_data.py            # audit nguồn dữ liệu
+│   ├── prepare_splits.py       # tạo 5 split domain-disjoint
+│   ├── train.py                 # tạo artifact trực tiếp trong artifacts/
+│   ├── evaluate.py              # locked test và hard slices
+│   ├── security_stress.py       # security gate
+│   ├── evaluate_edge_cases.py   # báo cáo edge-case bổ sung
+│   └── promote_release.py      # kiểm tra integrity/gate, không tự ghi pointer
+├── configs/train_config.yaml    # seed, tỷ lệ split, model, calibration, thresholds
 ├── resources/                   # brand, shortener, suspicious TLD dictionaries
-├── Data/                        # CSV input local
+├── Data/                        # dữ liệu CSV local, không commit dữ liệu nhạy cảm
 ├── evaluation/                  # hard_dev và hard_locked_test JSONL
-├── artifacts/                   # audit, manifests, splits, benchmark output
-├── releases/                    # runtime: candidates và current pointer
-├── reports/                     # runtime: locked test/error/drift reports
-├── tests/                       # unit, API, lifecycle, adversarial tests
-├── demo/                        # safe_urls.json và suspicious_urls.json
-├── notebooks/archive/           # thí nghiệm cũ, không thuộc production flow
-├── requirements*.txt            # runtime và dev dependencies
-├── CONTRIBUTING.md              # quy tắc đóng góp
-├── SECURITY.md                  # threat model và security policy
-└── README.md                   # tài liệu canonical
+├── artifacts/                   # model, metadata, calibration, thresholds, split reports
+├── reports/                     # báo cáo đánh giá sinh ra khi chạy pipeline
+├── tests/                       # unit, data leakage, API contract, adversarial tests
+├── requirements*.txt
+├── SECURITY.md
+├── LICENSE
+└── README.md
 ```
 
-`releases/` và `reports/` có thể chưa tồn tại ở checkout mới. Production đọc
-bundle được trỏ bởi `releases/current_release.json`. Đã loại bỏ các bản sao model
-legacy trong `API/`, `artifacts/` và `artifacts/models/` để tránh chọn nhầm model.
-Script `export_model.py` đã được bỏ; dùng pipeline train → evaluate → stress →
-promote bên dưới. Báo cáo và split trong `artifacts/` cần tái tạo theo cấu hình
-hiện tại trước khi huấn luyện; dữ liệu nguồn vẫn nằm riêng trong `Data/`.
+`artifacts/` và `reports/` có thể chưa có model mới trong checkout sạch. Không commit model binary/pickle; model runtime phải là XGBoost Native JSON được tạo bởi `scripts.train`.
 
 ## Hướng Dẫn Cài Đặt & Chạy Thử Nghiệm
 
-### Cài đặt
+Yêu cầu Python 3.10+, Node.js 22 cho kiểm tra Extension và dữ liệu local gồm:
 
-Yêu cầu Python 3.10+, Chrome/Chromium nếu chạy Extension và `pyarrow` để đọc/ghi
-Parquet. Chạy từ thư mục gốc:
+- `Data/legit_url.csv` có cột `url`.
+- `Data/verified_online.csv` có cột `url`; có thể có thêm `submission_time` nhưng pipeline canonical không dùng temporal split.
 
 ```powershell
 py -3.10 -m venv .venv
@@ -151,104 +134,55 @@ py -3.10 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
-Linux/macOS dùng tương đương `.venv/bin/python`. Không commit `.env`, URL
-phishing đang hoạt động hoặc dữ liệu chứa token/session. API mặc định đọc active
-release pointer; chỉ dùng `PHISHGUARD_MODEL_PATH` khi kiểm tra candidate rõ ràng.
-
-### Pipeline
+Chạy từng bước:
 
 ```powershell
-# Audit dữ liệu và tạo DatasetManifest/quality report
 .venv\Scripts\python.exe -m scripts.audit_data
-
-# Tạo train/validation/calibration/policy_validation/test
 .venv\Scripts\python.exe -m scripts.prepare_splits
-
-# Benchmark baseline, refit XGBoost, calibrate, chọn ActionPolicy, freeze candidate
 .venv\Scripts\python.exe -m scripts.train
-
-# Locked Test đúng một lần
-.venv\Scripts\python.exe -m scripts.evaluate --release-dir releases/candidates/phishguard-4.0.0
-
-# Curated security stress gate
-.venv\Scripts\python.exe -m scripts.security_stress --release-dir releases/candidates/phishguard-4.0.0
-
-# Promote atomic sau khi toàn bộ gate đạt
-.venv\Scripts\python.exe -m scripts.promote_release --release-dir releases/candidates/phishguard-4.0.0
+.venv\Scripts\python.exe -m scripts.evaluate
+.venv\Scripts\python.exe -m scripts.security_stress --release-dir releases\candidates\phishguard-4.0.0
+.venv\Scripts\python.exe -m scripts.promote_release --release-dir releases\candidates\phishguard-4.0.0
 ```
 
-Runner tương đương:
+Hoặc dùng runner:
 
 ```powershell
 .venv\Scripts\python.exe -m phishguard.pipeline run
-.venv\Scripts\python.exe -m phishguard.pipeline promote
 ```
 
-`pipeline run` cố ý dừng sau stress và không promote để người vận hành xem
-report. `train`, `evaluate`, `security_stress` không sửa production.
+`scripts.train` ghi model canonical vào `artifacts/` và đồng thời tạo candidate bundle để các security gate kiểm tra. `scripts.promote_release` chỉ xác minh integrity/gate; không tự thay đổi production pointer.
 
-### API và Extension
+Khởi động API:
 
 ```powershell
 .venv\Scripts\python.exe -m API.main
 ```
 
-API bind mặc định ở `http://127.0.0.1:5000`. Khi chưa promote, `/health/live`
-vẫn báo process sống nhưng `/health/ready`, `/health` và prediction trả 503 do
-fail-closed. Sau khi promote, gọi `GET /health/ready`.
+API chạy tại `http://127.0.0.1:5000`. `GET /health/live` chỉ kiểm tra process; `GET /health` và endpoint score cần bộ artifact hợp lệ. Extension: mở `chrome://extensions`, bật Developer mode, chọn Load unpacked và trỏ vào `Extension/`.
 
-Để chạy Extension: mở `chrome://extensions`, bật Developer mode, chọn Load
-unpacked và trỏ đến `Extension/`. Extension dùng `POST /v1/score`; route
-`/phish-url-prediction` chỉ còn alias tương thích. API offline hiển thị badge
-`?`, không tự đánh dấu URL là an toàn.
+## Feature contract, model và policy
 
-## Dữ liệu, feature contract và policy
+`lexical-v4` có 25 cột cố định trong `phishguard/features/contract.py`:
 
-Nguồn chính là `Data/legit_url.csv` và `Data/verified_online.csv`. Audit snapshot
-hiện tại ghi 395.356 dòng nguồn, còn 395.034 dòng sạch trên 111.874 registered
-domains sau xử lý conflict/duplicate; source of truth là
-`artifacts/data_quality_report.json`, `dataset_manifest.json` và
-`split_manifest.json`.
+```text
+url_length, hostname_length, path_length, query_length, url_entropy,
+digit_ratio, special_char_ratio, dot_count, hyphen_count, at_count,
+path_depth, first_directory_length, subdomain_count, hostname_label_count,
+max_label_length, has_ip_address, tld_length, domain_length,
+is_suspicious_tld, has_punycode, brand_in_subdomain, brand_in_path,
+brand_not_registered_domain, uses_shortening_service, has_redirection_pattern
+```
 
-Tỷ lệ split cấu hình trong `configs/train_config.yaml`: Train 60%, Validation
-15%, Calibration 10%, Policy Validation 5%, Locked Test 10%. Manifest bắt buộc
-`domain_overlap = 0` và `canonical_url_overlap = 0`.
+Model production là XGBoost. Rule-based/Logistic Regression chỉ là baseline nghiên cứu nếu được gọi độc lập. Calibrator fit trên calibration; policy chọn cặp threshold trên threshold validation; test chỉ dùng để báo cáo.
 
-`lexical-v4` có 25 cột, đúng thứ tự trong `phishguard/features/contract.py`:
+| Điều kiện score | Action | Hành vi Extension |
+|---|---|---|
+| `< caution_threshold` | `ALLOW` | cho phép điều hướng |
+| `caution_threshold <= score < block_threshold` | `CAUTION` | cảnh báo mềm |
+| `>= block_threshold` | `BLOCK` | dừng trang và mở warning |
 
-- Lexical: `url_length`, `hostname_length`, `path_length`, `query_length`,
-  `url_entropy`, `digit_ratio`, `special_char_ratio`, `dot_count`,
-  `hyphen_count`, `at_count`, `path_depth`, `first_directory_length`.
-- Host/domain: `subdomain_count`, `hostname_label_count`, `max_label_length`,
-  `has_ip_address`, `tld_length`, `domain_length`, `is_suspicious_tld`,
-  `has_punycode`.
-- Brand: `brand_in_subdomain`, `brand_in_path`,
-  `brand_not_registered_domain`.
-- Heuristic: `uses_shortening_service`, `has_redirection_pattern`.
-
-V4 giữ số lượng/thứ tự cột nhưng dùng brand matching theo token/hostname label để
-tránh false positive như `pineapple.example.com`. Ba resource JSON được copy vào
-bundle và xác minh SHA-256.
-
-Rule-based và Logistic Regression chỉ là baseline. XGBoost là model production
-canonical duy nhất. Model refit trên Train+Validation; calibrator fit trên
-Calibration; ActionPolicy chọn cặp threshold trên Policy Validation. Runtime mapping:
-
-| Score | Risk level | Action | Hành vi |
-|---|---|---|---|
-| dưới caution | LOW | ALLOW | tiếp tục navigation |
-| caution đến dưới block | MEDIUM | CAUTION | cảnh báo mềm |
-| từ block trở lên | HIGH | BLOCK | `window.stop` và `warning.html` |
-
-## Artifact, API contract và report
-
-Candidate `releases/candidates/phishguard-<version>/` phải có
-`model.json`, `metadata.json`, `feature_contract.json`, `calibration.json`,
-`action_policy.json`, `resources/*.json`, manifest, `evaluation.json` và
-`security_stress_metrics.json`. `promote_release.py` kiểm tra lineage, checksum,
-resource, split overlap, Locked Test và stress trước khi atomic update pointer.
-
-Endpoint canonical:
+## API contract
 
 ```http
 POST /v1/score
@@ -257,26 +191,11 @@ Content-Type: application/json
 {"url":"https://example.com/login"}
 ```
 
-Response gồm `request_id`, `url`, `risk_score`, `decision`
-(`action`, `risk_level`, `reason`), `signals`
-(`punycode`, `brand_mismatch`, `shortener`, `suspicious_tld`) và
-`versions` (`release`, `model`, `feature_contract`,
-`feature_contract_hash`, `policy`). Endpoint batch canonical là
-`POST /v1/score/batch`, body `{"urls":["https://example.com"]}`, nhận tối đa
-50 URL và giữ nguyên thứ tự đầu vào. Alias `/phish-url-prediction` và
-`/phish-url-prediction/batch` chỉ để tương thích client cũ. Hệ thống còn có
-`/health/live`, `/health/ready`, `/health`,
-`/model-info`, `/stats` và `DELETE /cache`.
+`POST /v1/score/batch` nhận `{"urls":[...]}`, tối đa 50 URL và giữ thứ tự. Response đơn gồm `request_id`, URL đầu vào, `risk_score`, `decision`, bốn `signals` lexical và `versions` gồm model, contract, contract hash, policy. Không có response field `cached` và không có route alias cũ.
 
-Report không ghi metric cố định vào README:
+Endpoint hệ thống: `GET /health/live`, `GET /health/ready`, `GET /health`, `GET /model-info`. URL phải là HTTP/HTTPS, có hostname, port hợp lệ, dài không quá 2.048 ký tự và không chứa whitespace/ký tự điều khiển.
 
-- Locked Test: `reports/<model_version>/locked_test_metrics.json`.
-- Error analysis: `reports/<model_version>/error_analysis.json`.
-- Future-Phishing Unseen-Domain Stress Test: report của
-  `scripts.temporal_benchmark`.
-- Curated stress: `security_stress_metrics.json` trong candidate.
-
-## Kiểm thử và chất lượng
+## Kiểm thử và CI
 
 ```powershell
 .venv\Scripts\python.exe -m ruff check phishguard API scripts tests
@@ -289,18 +208,12 @@ node --check Extension\warning.js
 node --check Extension\config.js
 ```
 
-CI dùng Python 3.11 và Node.js 22, chạy khi push vào main/master, mở pull request
-hoặc chạy thủ công bằng workflow_dispatch. Badge phía trên phản ánh lần chạy trên
-GitHub; kết quả kiểm thử cục bộ không thay thế trạng thái của GitHub Actions.
+GitHub Actions chạy trên Python 3.11 và Node.js 22 khi push, pull request hoặc `workflow_dispatch`: lint, format, unit/integration tests, manifest JSON và cú pháp Extension. Test API tích hợp tự skip khi checkout chưa có artifact; điều này tránh CI xanh giả rằng model production đã được train.
 
-Kiểm thử đăng ký route và xác thực URL chạy ngay trên checkout mới. Cả request
-đơn và batch từ chối cổng sai, cổng vượt 65535, khoảng trắng bên trong và ký tự
-điều khiển; URL IPv6 và khoảng trắng mã hóa `%20` vẫn được giữ nguyên.
-Toàn bộ lớp ApiContractTests cần release hợp lệ và bị skip khi chưa promote.
-Vì vậy CI xanh ở checkout mới chưa chứng minh luồng dự đoán với model thật đã đạt;
-cần chạy lại test sau pipeline/promote để kiểm tra tích hợp đầy đủ.
+## Giới hạn và bảo mật
 
-Chi tiết threat model/privacy nằm trong `SECURITY.md`. Giữ hàm nhỏ, chú thích
-tiếng Việt tập trung vào lý do, không đổi thứ tự `FEATURE_COLUMNS` nếu chưa tăng
-version/train lại. Mọi thay đổi model phải kèm audit, manifest, checksum và
-regression test.
+URL có thể chứa token/session trong query. Extension chỉ lưu `origin + pathname` vào `chrome.storage.local`; API không ghi URL đầy đủ vào log. Không dùng pickle/joblib. Artifact được kiểm tra SHA-256 và feature/resource contract trước khi serving. Xem [SECURITY.md](SECURITY.md) để biết threat model và cách báo cáo lỗ hổng.
+
+## License
+
+MIT — xem [LICENSE](LICENSE).

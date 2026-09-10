@@ -2,14 +2,6 @@
 
 from .contract import (
     FEATURE_COLUMNS,
-    FEATURE_COLUMNS_V1,
-    FEATURE_COLUMNS_V2,
-    FEATURE_COLUMNS_V3,
-    FEATURE_COLUMNS_V4,
-    FEATURE_CONTRACT_V1,
-    FEATURE_CONTRACT_V2,
-    FEATURE_CONTRACT_V3,
-    FEATURE_CONTRACT_V4,
     FEATURE_CONTRACT_VERSION,
 )
 from .extractor import (
@@ -17,8 +9,6 @@ from .extractor import (
     calculate_entropy,
     detect_brand_abuse,
     extract_features,
-    extract_features_v1,
-    extract_features_v2,
     first_directory_length,
     get_subdomain_and_labels,
     has_ip_address,
@@ -33,20 +23,10 @@ from .extractor import (
 
 __all__ = [
     "FEATURE_COLUMNS",
-    "FEATURE_COLUMNS_V1",
-    "FEATURE_COLUMNS_V2",
-    "FEATURE_COLUMNS_V3",
-    "FEATURE_COLUMNS_V4",
-    "FEATURE_CONTRACT_V1",
-    "FEATURE_CONTRACT_V2",
-    "FEATURE_CONTRACT_V3",
-    "FEATURE_CONTRACT_V4",
     "FEATURE_CONTRACT_VERSION",
     "calculate_entropy",
     "detect_brand_abuse",
     "extract_features",
-    "extract_features_v1",
-    "extract_features_v2",
     "first_directory_length",
     "get_subdomain_and_labels",
     "has_ip_address",

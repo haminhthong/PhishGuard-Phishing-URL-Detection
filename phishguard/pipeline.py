@@ -75,7 +75,7 @@ def run_stress() -> None:
 
 
 def run_promote() -> None:
-    """Promote candidate đã qua Locked Test và security gates."""
+    """Xác minh candidate đã qua Locked Test và security gates."""
     from scripts.promote_release import main as promote_main
 
     print("\n" + "=" * 70)
@@ -115,8 +115,8 @@ def main() -> None:
             "  train    - Train LogReg/XGBoost, calibrate và chọn ActionPolicy\n"
             "  evaluate - Đánh giá Locked Test cho candidate\n"
             "  stress   - Chạy curated security regression benchmark\n"
-            "  promote  - Cập nhật current_release.json sau mọi release gate\n"
-            "  package  - Alias tương thích cho promote\n"
+            "  promote  - Xác minh integrity/gate của candidate\n"
+            "  package  - Alias tương thích cho bước xác minh\n"
         ),
     )
 

@@ -9,7 +9,7 @@ import json
 import unittest
 from pathlib import Path
 
-from phishguard.features import extract_features_v1, extract_features_v2
+from phishguard.features import extract_features
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "hard_negatives.json"
 
@@ -20,25 +20,19 @@ class HardNegativeBenchmarkTests(unittest.TestCase):
         with open(FIXTURE_PATH, encoding="utf-8") as f:
             self.hard_negatives = json.load(f)
 
-    def test_hard_negatives_v1_and_v2_extraction(self) -> None:
-        """Đảm bảo mọi URL trong hard_negatives đều trích xuất thành công cả v1 và v2."""
+    def test_hard_negatives_extraction(self) -> None:
+        """Đảm bảo mọi URL hard negative tuân thủ contract lexical-v4."""
         for item in self.hard_negatives:
             url = item["url"]
             category = item.get("category", "unknown")
 
-            # v1 contract
-            f1 = extract_features_v1(url)
-            self.assertEqual(len(f1), 12)
-            self.assertEqual(f1["Having_IP"], 0)
-
-            # v2 contract
-            f2 = extract_features_v2(url)
-            self.assertEqual(len(f2), 25)
-            self.assertEqual(f2["has_ip_address"], 0)
-            self.assertEqual(f2["has_punycode"], 0)
+            features = extract_features(url)
+            self.assertEqual(len(features), 25)
+            self.assertEqual(features["has_ip_address"], 0)
+            self.assertEqual(features["has_punycode"], 0)
             # URL hợp lệ không được kích hoạt cờ mạo danh thương hiệu trái phép
             self.assertEqual(
-                f2["brand_not_registered_domain"],
+                features["brand_not_registered_domain"],
                 0,
                 f"False positive brand abuse flag on legitimate URL: {url} ({category})",
             )

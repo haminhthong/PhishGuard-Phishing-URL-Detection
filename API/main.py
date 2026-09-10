@@ -20,6 +20,6 @@ if __name__ == "__main__":
     print(f" 🌐 Địa chỉ API local:    http://{CONFIG.host}:{CONFIG.port}")
     print(f" 📚 Tài liệu Swagger UI:  http://{CONFIG.host}:{CONFIG.port}/docs")
     print(f" 🩺 Kiểm tra Health:      http://{CONFIG.host}:{CONFIG.port}/health")
-    print(f" 📊 Báo cáo Thống kê:     http://{CONFIG.host}:{CONFIG.port}/stats")
+    print(f" 🧠 Thông tin model:       http://{CONFIG.host}:{CONFIG.port}/model-info")
     print("=" * 65)
     start()

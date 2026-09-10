@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from phishguard.training.data import DatasetManifest, audit_and_clean_data, split_by_domain_5way
+from phishguard.training.data import DatasetManifest, audit_and_clean_data, split_by_domain
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -23,7 +23,7 @@ ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 CONFIG_PATH = PROJECT_ROOT / "configs" / "train_config.yaml"
 LEGIT_CSV = DATA_DIR / "legit_url.csv"
 PHISHING_CSV = DATA_DIR / "verified_online.csv"
-SPLIT_NAMES = ("train", "validation", "calibration", "policy_validation", "test")
+SPLIT_NAMES = ("train", "validation", "calibration", "threshold_validation", "test")
 
 
 def save_split_dataframe(df: pd.DataFrame, file_prefix: Path) -> None:
@@ -55,7 +55,7 @@ def main() -> None:
         "train": float(split_config.get("train", 0.60)),
         "validation": float(split_config.get("validation", 0.15)),
         "calibration": float(split_config.get("calibration", 0.10)),
-        "policy_validation": float(split_config.get("policy_validation", 0.05)),
+        "threshold_validation": float(split_config.get("threshold_validation", 0.05)),
         "test": float(split_config.get("test", 0.10)),
     }
 
@@ -91,17 +91,17 @@ def main() -> None:
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-    splits = split_by_domain_5way(
+    splits = split_by_domain(
         cleaned_df,
         train_size=proportions["train"],
         validation_size=proportions["validation"],
         calibration_size=proportions["calibration"],
-        policy_validation_size=proportions["policy_validation"],
+        threshold_validation_size=proportions["threshold_validation"],
         test_size=proportions["test"],
         random_state=random_seed,
     )
     split_manifest = {
-        "split_version": "domain-5way-v2",
+        "split_version": "domain-5way-v3",
         "seed": random_seed,
         "strategy": "stratified-registered-domain-5way",
         "source_dataset_sha256": hashlib.sha256(

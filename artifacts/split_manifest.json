@@ -1,15 +1,42 @@
 {
+  "split_version": "domain-5way-v3",
   "seed": 42,
-  "train_rows": 266997,
-  "validation_rows": 57600,
-  "calibration_rows": 33274,
-  "test_rows": 37163,
-  "train_domains": 72717,
-  "validation_domains": 16781,
-  "calibration_domains": 11188,
-  "test_domains": 11188,
-  "train_positive_rate": 0.1263,
-  "val_positive_rate": 0.0699,
-  "cal_positive_rate": 0.0806,
-  "test_positive_rate": 0.2429
+  "strategy": "stratified-registered-domain-5way",
+  "source_dataset_sha256": "a5b4668b44b9a9610c9d35939900f4ace71467a572ea4d6934e8bc5e7d66ed17",
+  "target_proportions": {
+    "train": 0.6,
+    "validation": 0.15,
+    "calibration": 0.1,
+    "threshold_validation": 0.05,
+    "test": 0.1
+  },
+  "splits": {
+    "train": {
+      "rows": 237020,
+      "domains": 23912,
+      "positive_rate": 0.125175
+    },
+    "development": {
+      "rows": 59255,
+      "domains": 23516,
+      "positive_rate": 0.125171
+    },
+    "calibration": {
+      "rows": 39504,
+      "domains": 23074,
+      "positive_rate": 0.125177
+    },
+    "threshold_validation": {
+      "rows": 19752,
+      "domains": 18299,
+      "positive_rate": 0.125152
+    },
+    "locked_test": {
+      "rows": 39503,
+      "domains": 23073,
+      "positive_rate": 0.12518
+    }
+  },
+  "domain_overlap": 0,
+  "canonical_url_overlap": 0
 }

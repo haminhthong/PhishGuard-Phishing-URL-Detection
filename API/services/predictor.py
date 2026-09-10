@@ -10,14 +10,8 @@ from uuid import uuid4
 import pandas as pd
 
 from API.errors import PhishGuardAPIException
-from API.services.cache import PredictionCache
 from API.services.model_loader import LoadedModel
-from phishguard.features import (
-    FEATURE_COLUMNS_V1,
-    FEATURE_COLUMNS_V2,
-    FEATURE_COLUMNS_V3,
-    FEATURE_COLUMNS_V4,
-)
+from phishguard.features import FEATURE_COLUMNS
 
 LOGGER = logging.getLogger("phishguard.api.predictor")
 ACTION_REASONS = {
@@ -36,22 +30,16 @@ def safe_log_host(url: str) -> str:
 
 
 class PredictorService:
-    def __init__(self, loaded_model: LoadedModel, cache: PredictionCache) -> None:
+    def __init__(self, loaded_model: LoadedModel) -> None:
         self.loaded_model = loaded_model
         self.model = loaded_model.model
         self.calibrator = loaded_model.calibrator
         self.action_policy = loaded_model.action_policy
         self.feature_extractor = loaded_model.feature_extractor
-        self.cache = cache
         self.model_version = loaded_model.model_version
         self.policy_version = loaded_model.policy_version
         self.feature_contract = loaded_model.feature_contract
-        self.feature_columns = {
-            "lexical-v1": FEATURE_COLUMNS_V1,
-            "lexical-v2": FEATURE_COLUMNS_V2,
-            "lexical-v3": FEATURE_COLUMNS_V3,
-            "lexical-v4": FEATURE_COLUMNS_V4,
-        }[self.feature_contract]
+        self.feature_columns = FEATURE_COLUMNS
 
     def evaluate_action_policy(self, score: float) -> tuple[str, str]:
         """Ủy quyền hoàn toàn quyết định cho ActionPolicy đã được checksum."""
@@ -59,15 +47,6 @@ class PredictorService:
 
     def predict_url(self, url: str) -> dict[str, Any]:
         """Trả canonical risk score và browser decision từ cùng một policy."""
-        cached_result = self.cache.get(
-            url, self.model_version, self.feature_contract, self.policy_version
-        )
-        if cached_result is not None:
-            result = dict(cached_result)
-            result["cached"] = True
-            result["request_id"] = str(uuid4())
-            return result
-
         try:
             features = self.feature_extractor.extract(url)
             input_frame = pd.DataFrame([features], columns=self.feature_columns)
@@ -107,15 +86,12 @@ class PredictorService:
                 "suspicious_tld": bool(features.get("is_suspicious_tld", 0)),
             },
             "versions": {
-                "release": self.loaded_model.release_id,
                 "model": self.model_version,
                 "feature_contract": self.feature_contract,
                 "feature_contract_hash": self.loaded_model.feature_contract_hash,
                 "policy": self.policy_version,
             },
-            "cached": False,
         }
-        self.cache.put(url, result, self.model_version, self.feature_contract, self.policy_version)
         LOGGER.info(
             "Predicted hostname=%s score=%.4f action=%s policy=%s",
             safe_log_host(url),

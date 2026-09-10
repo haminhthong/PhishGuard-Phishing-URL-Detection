@@ -1,5 +1,5 @@
 {
-  "dataset_version": "v3.2.0",
+  "dataset_version": "v4.0.0",
   "source_checksums": {
     "legitimate": "4bb445fe07d1d639e09c948c79b2ce322ff503ec19ab0a02bda49270f3bd3387",
     "phishing": "162807b56cc0c5e70d7b75ce9c7077916ef57a25662d25503dbebda5ae8ebd43"

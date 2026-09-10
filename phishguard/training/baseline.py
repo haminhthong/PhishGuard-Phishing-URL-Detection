@@ -8,6 +8,8 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
 
+from phishguard.features import FEATURE_COLUMNS
+
 
 class RuleBasedPhishingClassifier(BaseEstimator, ClassifierMixin):
     """
@@ -27,16 +29,14 @@ class RuleBasedPhishingClassifier(BaseEstimator, ClassifierMixin):
     def _compute_risk_score(self, row: pd.Series | np.ndarray) -> float:
         score = 0.0
         if isinstance(row, pd.Series):
-            # Hỗ trợ cả contract v1 lẫn v2
-            having_ip = row.get("Having_IP", row.get("has_ip_address", 0))
-            tiny_url = row.get("Tiny_URL", row.get("uses_shortening_service", 0))
-            at_count = row.get("At_Count", row.get("at_count", 0))
-            dot_count = row.get("Dot_Count", row.get("dot_count", 0))
-            hyphen_count = row.get("Hyphen_Count", row.get("hyphen_count", 0))
-            per_count = row.get("Per_Count", row.get("query_length", 0))
-            redirection = row.get("Redirection", row.get("has_redirection_pattern", 0))
-            depth = row.get("Depth", row.get("path_depth", 0))
-            # Đặc trưng bảo mật bổ sung v2
+            having_ip = row.get("has_ip_address", 0)
+            tiny_url = row.get("uses_shortening_service", 0)
+            at_count = row.get("at_count", 0)
+            dot_count = row.get("dot_count", 0)
+            hyphen_count = row.get("hyphen_count", 0)
+            per_count = row.get("query_length", 0)
+            redirection = row.get("has_redirection_pattern", 0)
+            depth = row.get("path_depth", 0)
             brand_abuse = row.get("brand_not_registered_domain", 0)
             punycode = row.get("has_punycode", 0)
             subdomains = row.get("subdomain_count", 0)
@@ -50,14 +50,15 @@ class RuleBasedPhishingClassifier(BaseEstimator, ClassifierMixin):
             if suspicious_tld > 0:
                 score += 1.5
         else:
-            having_ip = row[0] if len(row) > 0 else 0
-            tiny_url = row[1] if len(row) > 1 else 0
-            dot_count = row[4] if len(row) > 4 else 0
-            at_count = row[5] if len(row) > 5 else 0
-            hyphen_count = row[6] if len(row) > 6 else 0
-            per_count = row[7] if len(row) > 7 else 0
-            redirection = row[9] if len(row) > 9 else 0
-            depth = row[10] if len(row) > 10 else 0
+            values = dict(zip(FEATURE_COLUMNS, row, strict=False))
+            having_ip = values.get("has_ip_address", 0)
+            tiny_url = values.get("uses_shortening_service", 0)
+            dot_count = values.get("dot_count", 0)
+            at_count = values.get("at_count", 0)
+            hyphen_count = values.get("hyphen_count", 0)
+            per_count = values.get("query_length", 0)
+            redirection = values.get("has_redirection_pattern", 0)
+            depth = values.get("path_depth", 0)
 
         if having_ip > 0:
             score += 2.5

@@ -16,22 +16,13 @@ from phishguard.calibration import (
     ActionPolicy,
     CalibrationArtifact,
     ProbabilityCalibrator,
-    RiskPolicyConfig,
     select_action_policy,
     sweep_operating_threshold,
 )
-from phishguard.features import (
-    FEATURE_COLUMNS_V2,
-    FEATURE_COLUMNS_V4,
-    FEATURE_CONTRACT_V2,
-    FEATURE_CONTRACT_V4,
-    extract_features,
-)
+from phishguard.features import FEATURE_COLUMNS, FEATURE_CONTRACT_VERSION, extract_features
 from phishguard.training.data import (
     clean_dataset,
-    split_by_domain_4way,
-    split_by_domain_5way,
-    temporal_split_protocol_b,
+    split_by_domain,
 )
 
 
@@ -42,8 +33,8 @@ class LifecycleInvariantsTests(unittest.TestCase):
         ở cả training data pipeline và online API serving predictor.
         """
         url = "https://user@test.sub.domain.co.uk:8443/login/oauth?session=123%20abc&token=xyz#hash"
-        features_train = extract_features(url, contract=FEATURE_CONTRACT_V2)
-        features_serving = extract_features(url, contract=FEATURE_CONTRACT_V2)
+        features_train = extract_features(url)
+        features_serving = extract_features(url)
 
         self.assertEqual(features_train, features_serving)
         self.assertEqual(len(features_train), 25)
@@ -103,7 +94,7 @@ class LifecycleInvariantsTests(unittest.TestCase):
             rows.append({"url": f"https://{domain_name}/page1", "label": d_id % 2})
             rows.append({"url": f"https://sub.{domain_name}/page2", "label": (d_id + 1) % 2})
 
-        splits = split_by_domain_4way(pd.DataFrame(rows), random_state=42)
+        splits = split_by_domain(pd.DataFrame(rows), random_state=42)
         train_domains = set(splits.train["domain"])
         val_domains = set(splits.validation["domain"])
         cal_domains = set(splits.calibration["domain"])
@@ -146,7 +137,6 @@ class LifecycleInvariantsTests(unittest.TestCase):
 
         sweep = sweep_operating_threshold(y_cal, cal_scores, max_fpr=0.01)
         self.assertIn("constrained_threshold", sweep)
-        self.assertIn("min_cost_threshold", sweep)
         self.assertIn("max_f1_threshold", sweep)
 
         chosen_th = sweep["constrained_threshold"]
@@ -159,7 +149,7 @@ class LifecycleInvariantsTests(unittest.TestCase):
         """
         with self.assertRaises(ValueError) as ctx:
             extract_features("https://example.com", contract="lexical-v999")
-        self.assertIn("Unsupported feature contract", str(ctx.exception))
+        self.assertIn("Chỉ hỗ trợ", str(ctx.exception))
 
     def test_artifact_feature_contract_roundtrip(self) -> None:
         """
@@ -207,24 +197,8 @@ class LifecycleInvariantsTests(unittest.TestCase):
         """
         Bất biến 11: Feature contract v2 legacy có đúng 25 tên đặc trưng.
         """
-        self.assertEqual(len(FEATURE_COLUMNS_V2), 25)
-        self.assertEqual(FEATURE_CONTRACT_V2, "lexical-v2")
-        self.assertEqual(len(FEATURE_COLUMNS_V4), 25)
-        self.assertEqual(FEATURE_CONTRACT_V4, "lexical-v4")
-
-    def test_risk_threshold_order(self) -> None:
-        """
-        Bất biến 12: Ngưỡng Risk Policy phải đảm bảo 0.0 <= medium <= high <= 1.0
-        và trả về hành động chính xác (allow / caution / warn).
-        """
-        policy = RiskPolicyConfig(high_threshold=0.75, medium_threshold=0.45)
-        self.assertEqual(policy.evaluate(0.20), ("low", "allow"))
-        self.assertEqual(policy.evaluate(0.55), ("medium", "caution"))
-        self.assertEqual(policy.evaluate(0.90), ("high", "warn"))
-
-        # Kiểm tra reject thứ tự sai
-        with self.assertRaises(ValueError):
-            RiskPolicyConfig(high_threshold=0.30, medium_threshold=0.80)
+        self.assertEqual(len(FEATURE_COLUMNS), 25)
+        self.assertEqual(FEATURE_CONTRACT_VERSION, "lexical-v4")
 
     def test_action_policy_is_the_canonical_browser_decision(self) -> None:
         """Bất biến P0: browser chỉ nhận allow/caution/block từ một policy."""
@@ -257,12 +231,12 @@ class LifecycleInvariantsTests(unittest.TestCase):
         rows = [
             {"url": f"https://domain-{index}.org/path", "label": index % 2} for index in range(200)
         ]
-        splits = split_by_domain_5way(pd.DataFrame(rows), random_state=42)
+        splits = split_by_domain(pd.DataFrame(rows), random_state=42)
         frames = [
             splits.train,
             splits.validation,
             splits.calibration,
-            splits.policy_validation,
+            splits.threshold_validation,
             splits.test,
         ]
         domains = [set(frame["domain"]) for frame in frames]
@@ -271,21 +245,6 @@ class LifecycleInvariantsTests(unittest.TestCase):
                 self.assertTrue(left.isdisjoint(right))
         rates = [float(frame["label"].mean()) for frame in frames]
         self.assertLess(max(rates) - min(rates), 0.05)
-
-    def test_temporal_benchmark_has_no_domain_overlap(self) -> None:
-        """
-        Bất biến 13: Protocol B chia tập theo thời gian bảo toàn tính thứ tự thời gian.
-        """
-        frame = pd.DataFrame(
-            {
-                "url": [f"https://domain-{i}.com/path" for i in range(10)],
-                "submission_time": [f"2025-01-{i + 1:02d}T00:00:00Z" for i in range(10)],
-                "label": [1] * 10,
-            }
-        )
-        splits = temporal_split_protocol_b(frame, test_ratio=0.30)
-        self.assertEqual(len(splits.train), 7)
-        self.assertEqual(len(splits.test), 3)
 
 
 if __name__ == "__main__":
