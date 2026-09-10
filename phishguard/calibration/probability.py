@@ -35,13 +35,10 @@ class ProbabilityCalibrator:
         if self.method == "isotonic":
             reg = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
             reg.fit(raw_scores_arr, y_true_arr)
-            # Serialize breakpoints để có thể suy luận thuần JSON không phụ thuộc pickle
-            # Dùng các điểm x và y nội suy
-            x_eval = np.linspace(0.0, 1.0, 201)
-            y_eval = reg.predict(x_eval)
+            # Lưu đúng các breakpoint đã fit, không thay bằng lưới nội suy cố định.
             self.params = {
-                "x_thresholds": [round(float(x), 6) for x in x_eval],
-                "y_thresholds": [round(float(y), 6) for y in y_eval],
+                "x_thresholds": [round(float(x), 6) for x in reg.X_thresholds_],
+                "y_thresholds": [round(float(y), 6) for y in reg.y_thresholds_],
             }
 
         elif self.method == "sigmoid":

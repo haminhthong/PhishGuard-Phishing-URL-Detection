@@ -1,4 +1,4 @@
-name: Kiểm tra chất lượng
+name: CI
 
 on:
   push:
@@ -21,16 +21,27 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
       - name: Cài thư viện
-        run: python -m pip install -r requirements-dev.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pip check
       - name: Cài đặt Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Kiểm tra lint Python
-        run: ruff check phishguard API scripts tests
+        run: python -m ruff check phishguard API scripts tests
       - name: Kiểm tra format Python
-        run: ruff format --check phishguard API scripts tests
+        run: python -m ruff format --check phishguard API scripts tests
+      - name: Kiểm tra runtime artifact contract
+        run: >-
+          python -c "from API.services.model_loader import load_phishguard_model;
+          model = load_phishguard_model(); assert model.feature_count == 25;
+          print(model.model_version)"
       - name: Chạy kiểm thử
         run: python -m unittest discover -s tests -v
       - name: Kiểm tra manifest extension
@@ -42,3 +53,22 @@ jobs:
           node --check Extension/popup.js
           node --check Extension/warning.js
           node --check Extension/config.js
+      - name: Smoke test API
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m API.main > api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/health > health.json; then
+              break
+            fi
+            sleep 1
+          done
+          test -s health.json
+          curl --fail --silent \
+            -H 'Content-Type: application/json' \
+            -d '{"url":"https://example.com"}' \
+            http://127.0.0.1:5000/v1/score > prediction.json
+          python -c "import json; data=json.load(open('prediction.json')); assert data['action'] in {'ALLOW','CAUTION','BLOCK'}"

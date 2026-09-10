@@ -1,15 +1,11 @@
-# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized Python files
 __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
-*.so
-
-# Distribution / packaging
+# Build and packaging output
 .Python
 build/
-develop-eggs/
 dist/
 downloads/
 eggs/
@@ -26,7 +22,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# Virtual environments
+# Virtual environments and local secrets
 .env
 .venv
 env/
@@ -35,7 +31,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# Unit test / coverage reports
+# Test and tool caches
 htmlcov/
 .tox/
 .nox/
@@ -50,25 +46,22 @@ coverage.xml
 .pytest_cache/
 .ruff_cache/
 
-# Dữ liệu raw và split sinh ra là input cục bộ, không commit vào release.
+# Raw data and generated split files stay local.
 Data/*.csv
 artifacts/splits/
 
-# Artifact và báo cáo runtime được tái tạo từ pipeline, không commit model hoặc dữ liệu split.
-artifacts/model.json
-artifacts/metadata.json
-artifacts/calibration.json
-artifacts/thresholds.json
+# Keep the four runtime files so a clone can run the API immediately.
 artifacts/training_report.json
 artifacts/source_bias_report.json
-reports/
 
-# IDE files
+# Keep the committed evaluation report only.
+reports/*
+!reports/evaluation.json
+
+# IDE and operating-system files
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS files
 .DS_Store
 Thumbs.db

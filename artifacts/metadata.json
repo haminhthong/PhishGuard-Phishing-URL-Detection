@@ -1,0 +1,24 @@
+{
+  "model_version": "4.0.0",
+  "model_type": "XGBClassifier",
+  "feature_contract": "lexical-v4",
+  "feature_count": 25,
+  "validation_metrics": {
+    "accuracy": 0.9811492701037887,
+    "precision": 0.9749698431845597,
+    "recall": 0.8717810435486045,
+    "f1": 0.9204925617481672,
+    "roc_auc": 0.975864143873034,
+    "pr_auc": 0.9496795822247036,
+    "false_positive_rate": 0.0032022840387360622,
+    "false_negative_rate": 0.12821895645139544,
+    "brier_score": 0.0161444905145029,
+    "expected_calibration_error": 0.0114,
+    "true_negatives": 51672,
+    "false_positives": 166,
+    "false_negatives": 951,
+    "true_positives": 6466
+  },
+  "training_date": "2026-09-10",
+  "xgboost_version": "3.0.4"
+}

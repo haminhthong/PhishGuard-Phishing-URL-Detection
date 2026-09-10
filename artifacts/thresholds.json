@@ -1,0 +1,36 @@
+{
+  "caution_threshold": 0.118812,
+  "block_threshold": 0.586957,
+  "actions": {
+    "low": "allow",
+    "medium": "caution",
+    "high": "block"
+  },
+  "selection": {
+    "thresholds": {
+      "caution_threshold": 0.118812,
+      "block_threshold": 0.586957,
+      "actions": {
+        "low": "allow",
+        "medium": "caution",
+        "high": "block"
+      }
+    },
+    "caution_metrics": {
+      "threshold": 0.118812,
+      "fpr": 0.019386574074074073,
+      "recall": 0.970873786407767
+    },
+    "block_metrics": {
+      "threshold": 0.586957,
+      "fpr": 0.004571759259259259,
+      "recall": 0.9546925566343042
+    },
+    "constraints": {
+      "caution_max_fpr": 0.02,
+      "block_max_fpr": 0.005,
+      "caution_min_recall": 0.9,
+      "block_min_recall": 0.8
+    }
+  }
+}

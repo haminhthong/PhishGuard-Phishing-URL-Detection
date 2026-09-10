@@ -39,7 +39,7 @@ flowchart TD
         SPLIT["Registered-domain split<br/>Train 60% | Validation 15%<br/>Calibration 10% | Threshold 5% | Test 10%"]
         FE["25 lexical-v4 features"]
         FIT["Fit XGBoost trên Train"]
-        VAL["Validation độc lập<br/>model/config selection"]
+        VAL["Development validation<br/>kiểm tra cấu hình trước final refit"]
         REFIT["Refit trên Train + Validation"]
         CAL["Probability calibration<br/>trên Calibration"]
         TUNE["Threshold tuning<br/>trên Threshold validation"]
@@ -104,25 +104,31 @@ PhishGuard ML/
 ├── scripts/                       # audit_data, prepare_splits, train, evaluate
 ├── configs/train_config.yaml
 ├── evaluation/, resources/, tests/
-├── artifacts/                     # output tái tạo, không có model copy thứ hai
-├── reports/
+├── artifacts/                     # runtime bundle + manifest; splits vẫn local
+│   ├── model.json, metadata.json, calibration.json, thresholds.json
+│   ├── data_quality_report.json, dataset_manifest.json, split_manifest.json
+│   └── splits/                    # sinh khi train, không commit
+├── reports/evaluation.json        # test + edge-case error analysis
 ├── .github/workflows/ci.yml
 ├── SECURITY.md, README.md, LICENSE
 ```
 
 ## Cài đặt
 
-Yêu cầu Python 3.11+, Node.js 22+ và hai CSV dữ liệu local.
+Yêu cầu Python 3.11+ và Node.js 22+ cho extension/CI. Runtime API dùng được ngay với bốn file trong artifacts/; CSV chỉ cần khi muốn tái tạo pipeline train.
 
 ```powershell
 py -3.11 -m venv .venv
 .\\.venv\\Scripts\\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
-$env:PYTHONPATH = (Get-Location).Path
+python -m pip install -r requirements.txt
 ```
 
-Đặt dữ liệu vào:
+Khi chạy lại pipeline, cài thêm dependency phát triển và đặt dữ liệu vào:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+```
 
 ```text
 Data/
@@ -147,9 +153,11 @@ Hoặc chạy toàn bộ:
 python -m phishguard.pipeline run
 ```
 
-Output chính gồm data_quality_report.json, dataset_manifest.json, source_bias_report.json, split_manifest.json, model.json, metadata.json, calibration.json, thresholds.json, training_report.json và reports/evaluation.json.
+Output chính gồm data_quality_report.json, dataset_manifest.json, split_manifest.json, model.json, metadata.json, calibration.json, thresholds.json và reports/evaluation.json. training_report.json và source_bias_report.json chỉ là báo cáo sinh cục bộ.
 
-API chỉ đọc model.json, metadata.json, calibration.json và thresholds.json trong artifacts/. Đây là nguồn model duy nhất của runtime.
+API chỉ đọc model.json, metadata.json, calibration.json và thresholds.json trong artifacts/. Đây là nguồn model duy nhất của runtime và bốn file này được giữ trong repository để clone mới có thể chạy API mà không cần raw data.
+
+Báo cáo đánh giá hiện tại: [reports/evaluation.json](reports/evaluation.json).
 
 ## API và Chrome Extension
 
@@ -185,7 +193,7 @@ node --check Extension/warning.js
 node --check Extension/config.js
 ```
 
-GitHub Actions thực hiện: cài dependency → Ruff lint/format → unit/integration tests → manifest JSON → JavaScript syntax. CI không phụ thuộc deploy, registry hay dịch vụ mạng.
+GitHub Actions thực hiện: cài dependency → `pip check` → Ruff lint/format → runtime artifact contract → unit/integration tests → manifest JSON → JavaScript syntax → boot API và smoke test `/health`, `/v1/score`. CI không phụ thuộc deploy, registry hay dịch vụ mạng.
 
 ## Giới hạn và bảo mật
 

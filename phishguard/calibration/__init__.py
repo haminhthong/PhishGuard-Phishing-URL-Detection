@@ -2,12 +2,11 @@
 
 from .policy import CalibrationArtifact, DecisionThresholds
 from .probability import ProbabilityCalibrator
-from .threshold import select_decision_thresholds, sweep_operating_threshold
+from .threshold import select_decision_thresholds
 
 __all__ = [
     "CalibrationArtifact",
     "DecisionThresholds",
     "select_decision_thresholds",
     "ProbabilityCalibrator",
-    "sweep_operating_threshold",
 ]

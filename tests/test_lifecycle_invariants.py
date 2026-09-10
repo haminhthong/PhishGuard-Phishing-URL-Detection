@@ -17,7 +17,6 @@ from phishguard.calibration import (
     DecisionThresholds,
     ProbabilityCalibrator,
     select_decision_thresholds,
-    sweep_operating_threshold,
 )
 from phishguard.features import FEATURE_COLUMNS, FEATURE_CONTRACT_VERSION, extract_features
 from phishguard.training.data import clean_dataset, split_by_domain
@@ -129,15 +128,20 @@ class LifecycleInvariantsTests(unittest.TestCase):
         Bất biến 6 (P0.5): Ngưỡng vận hành phải được chọn trên threshold validation,
         tập Test chỉ dùng để tính báo cáo.
         """
-        y_cal = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
-        cal_scores = np.array([0.05, 0.1, 0.15, 0.2, 0.35, 0.6, 0.7, 0.8, 0.9, 0.95])
+        y_threshold = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+        calibrated_scores = np.array([0.05, 0.1, 0.15, 0.2, 0.35, 0.6, 0.7, 0.8, 0.9, 0.95])
 
-        sweep = sweep_operating_threshold(y_cal, cal_scores, max_fpr=0.01)
-        self.assertIn("constrained_threshold", sweep)
-        self.assertIn("max_f1_threshold", sweep)
-
-        chosen_th = sweep["constrained_threshold"]
-        self.assertTrue(0.01 <= chosen_th <= 0.99)
+        selection = select_decision_thresholds(
+            y_threshold,
+            calibrated_scores,
+            caution_max_fpr=0.01,
+            block_max_fpr=0.01,
+            caution_min_recall=0.80,
+            block_min_recall=0.80,
+        )
+        thresholds = selection["thresholds"]
+        self.assertLess(thresholds["caution_threshold"], thresholds["block_threshold"])
+        self.assertGreaterEqual(selection["block_metrics"]["recall"], 0.80)
 
     def test_feature_contract_invalid_version_fails(self) -> None:
         """

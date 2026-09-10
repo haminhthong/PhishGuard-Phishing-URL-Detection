@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -32,7 +33,7 @@ class ApiContractTests(unittest.TestCase):
         """Khởi tạo TestClient cho ứng dụng FastAPI."""
         model = Path(__file__).resolve().parents[1] / "artifacts" / "model.json"
         if not model.is_file():
-            raise unittest.SkipTest("Chưa có artifacts/model.json; API phải fail-closed")
+            raise FileNotFoundError("Thiếu artifacts/model.json; API test không được bỏ qua")
         cls.client = TestClient(app)
 
     def test_health_check_endpoint(self) -> None:
@@ -59,7 +60,9 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("risk_score", data)
         self.assertIn(data["risk_level"], {"HIGH", "MEDIUM", "LOW"})
         self.assertIn(data["action"], {"ALLOW", "CAUTION", "BLOCK"})
-        self.assertEqual(data["model_version"], "4.0.0")
+        metadata_path = Path(__file__).resolve().parents[1] / "artifacts" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["model_version"], metadata["model_version"])
 
     def test_batch_prediction_endpoint(self) -> None:
         """Kiểm tra endpoint canonical POST /v1/score/batch."""
@@ -71,6 +74,7 @@ class ApiContractTests(unittest.TestCase):
         response = self.client.post(BATCH_SCORE_ROUTE, json={"urls": urls})
         self.assertEqual(response.status_code, 200)
         data = response.json()
+        self.assertEqual([item["url"] for item in data["results"]], urls)
         self.assertEqual(data["total"], 3)
         self.assertEqual(len(data["results"]), 3)
         self.assertEqual(data["results"][0]["url"], "https://google.com")

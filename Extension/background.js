@@ -1,14 +1,4 @@
-/**
- * Service Worker chính của PhishGuard ML Chrome Extension (Manifest V3).
- * 
- * Nhiệm vụ chính:
- * 1. Lắng nghe sự kiện điều hướng tab (chrome.tabs.onUpdated).
- * 2. Kiểm tra danh sách trắng cục bộ (Local Whitelist) và công tắc bảo vệ.
- * 3. Gửi yêu cầu kiểm tra URL tới REST API FastAPI (127.0.0.1:5000/v1/score).
- * 4. Quản lý Tab Token bất đồng bộ nhằm ngăn chặn hiện tượng Race Condition khi đổi tab nhanh.
- * 5. Cập nhật Dynamic Badge Icon trên Chrome Toolbar (ALLOW, CAUTION, BLOCK, ?).
- * 6. Lưu trữ lịch sử quét sanitized real-time (không lưu query string nhạy cảm).
- */
+/** Service worker: score navigations, apply local policy, and update the badge. */
 importScripts("config.js");
 
 const API_URL = `${PHISH_GUARD_CONFIG.apiBaseUrl}/v1/score`;
@@ -30,10 +20,7 @@ function normalizeDomain(value) {
     }
 }
 
-/**
- * Loại bỏ Query String và Hash Fragment khỏi URL trước khi lưu lịch sử
- * để bảo vệ quyền riêng tư người dùng (không làm lộ access token, email, session ID).
- */
+/** Bỏ query/hash khỏi lịch sử để không lưu token, email hoặc session ID. */
 function sanitizeUrlForHistory(urlString) {
     try {
         const parsed = new URL(urlString);
@@ -43,9 +30,7 @@ function sanitizeUrlForHistory(urlString) {
     }
 }
 
-/**
- * Khởi tạo dữ liệu mặc định trong chrome.storage.local.
- */
+/** Khởi tạo storage local khi service worker được cài hoặc đánh thức. */
 async function initializeStorage() {
     try {
         const data = await chrome.storage.local.get([KEYS.whitelist, KEYS.shieldEnabled, KEYS.scanHistory]);
@@ -64,9 +49,7 @@ async function initializeStorage() {
 }
 initializeStorage();
 
-/**
- * Kiểm tra tên miền (hostname) của URL có thuộc Whitelist an toàn hay không.
- */
+/** Kiểm tra hostname có thuộc whitelist local hay không. */
 async function isDomainWhitelisted(urlStr) {
     try {
         const hostname = new URL(urlStr).hostname.toLowerCase();
@@ -81,18 +64,14 @@ async function isDomainWhitelisted(urlStr) {
     }
 }
 
-/**
- * Cập nhật Badge trên Icon tiện ích ở thanh công cụ.
- */
+/** Cập nhật badge trên toolbar. */
 function updateToolbarBadge(tabId, statusText, colorHex) {
     if (!chrome.action) return;
     chrome.action.setBadgeText({ tabId, text: statusText });
     chrome.action.setBadgeBackgroundColor({ tabId, color: colorHex });
 }
 
-/**
- * Lưu vết kết quả quét URL đã làm sạch vào lịch sử (Tối đa 10 mục mới nhất).
- */
+/** Lưu tối đa 10 kết quả gần nhất sau khi đã làm sạch URL. */
 async function recordScanHistory(url, action, riskScore, riskLevel, modelVersion) {
     try {
         const data = await chrome.storage.local.get(KEYS.scanHistory);
@@ -115,9 +94,7 @@ async function recordScanHistory(url, action, riskScore, riskLevel, modelVersion
     }
 }
 
-/**
- * Gửi HTTP POST request tới máy chủ FastAPI để trích xuất đặc trưng và dự đoán URL.
- */
+/** Gửi URL đầy đủ tới API local để trích xuất feature và chấm điểm. */
 async function fetchPhishingPrediction(url) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -135,9 +112,7 @@ async function fetchPhishingPrediction(url) {
     }
 }
 
-/**
- * Bộ lắng nghe thông điệp từ Popup UI hoặc Content Script.
- */
+/** Nhận thao tác từ popup và content script. */
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message.type !== "string") return false;
 
@@ -216,11 +191,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
 });
 
-/**
- * Lắng nghe sự kiện cập nhật URL của các Tab trong Chrome.
- */
+/** Chấm URL mới khi tab bắt đầu điều hướng. */
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-    // Chỉ bảo vệ giao thức HTTP và HTTPS; bỏ qua hoàn toàn chrome://, file://, extension://
+    // URL nội bộ của Chrome không đi qua API scoring.
     if (changeInfo.status !== "loading" || !tab.url) return;
     try {
         const parsedUrl = new URL(tab.url);
@@ -244,7 +217,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     pendingChecks.set(tabId, checkToken);
 
     try {
-        // Gửi full URL (kèm query string) qua localhost in-memory để trích xuất đặc trưng chính xác
+        // Giữ query trong request vì lexical features dùng cả query length/content.
         const result = await fetchPhishingPrediction(tab.url);
 
         if (pendingChecks.get(tabId) !== checkToken) return;
@@ -257,11 +230,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             throw new Error("API thiếu risk score hoặc action policy hợp lệ");
         }
 
-        // Chỉ lưu URL đã làm sạch (bỏ query & hash) vào lịch sử để bảo vệ quyền riêng tư
         await recordScanHistory(tab.url, riskAction, score, riskLevel, modelVersion);
 
         if (riskAction === "block") {
-            // BLOCK: Hiển thị cảnh báo và kích hoạt interstitial.
             updateToolbarBadge(tabId, "BLOCK", "#ef4444");
             chrome.tabs.sendMessage(tabId, {
                 type: "PHISHING_DETECTED",
@@ -272,14 +243,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                 model_version: modelVersion || "unknown"
             }).catch(() => {});
         } else if (riskAction === "caution") {
-            // CAUTION: Cảnh báo mềm, không tự động chặn điều hướng.
             updateToolbarBadge(tabId, "CAUTION", "#f59e0b");
         } else {
-            // ALLOW: rủi ro phishing lexical thấp, không phải cam kết an toàn.
             updateToolbarBadge(tabId, "ALLOW", "#22c55e");
         }
     } catch (error) {
-        // Fail-safe: Khi API offline, thông báo "Protection unavailable" qua badge ?, KHÔNG giả lập verdict an toàn
+        // API lỗi thì hiển thị trạng thái chưa có verdict, không giả lập ALLOW.
         console.warn("Dịch vụ PhishGuard ML API offline hoặc không phản hồi:", error);
         updateToolbarBadge(tabId, "?", "#f59e0b");
     } finally {
