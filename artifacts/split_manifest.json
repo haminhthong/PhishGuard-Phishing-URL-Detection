@@ -16,7 +16,7 @@
       "domains": 23912,
       "positive_rate": 0.125175
     },
-    "development": {
+    "validation": {
       "rows": 59255,
       "domains": 23516,
       "positive_rate": 0.125171
@@ -31,7 +31,7 @@
       "domains": 18299,
       "positive_rate": 0.125152
     },
-    "locked_test": {
+    "test": {
       "rows": 39503,
       "domains": 23073,
       "positive_rate": 0.12518

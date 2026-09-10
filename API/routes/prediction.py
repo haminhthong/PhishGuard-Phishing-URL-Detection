@@ -54,14 +54,6 @@ class BatchURLRequest(BaseModel):
         return [normalize_web_url(val) for val in values]
 
 
-class DecisionDetails(BaseModel):
-    """Quyết định browser canonical, không phải nhãn legitimate/phishing."""
-
-    action: str
-    risk_level: str
-    reason: str
-
-
 class SignalDetails(BaseModel):
     """Các tín hiệu lexical chính để giải thích ngắn gọn quyết định."""
 
@@ -71,24 +63,17 @@ class SignalDetails(BaseModel):
     suspicious_tld: bool
 
 
-class VersionDetails(BaseModel):
-    """Thông tin phiên bản đã tạo ra kết quả."""
-
-    model: str
-    feature_contract: str
-    feature_contract_hash: str
-    policy: str
-
-
 class PredictionResponse(BaseModel):
     """Hợp đồng API canonical cho điểm rủi ro và can thiệp browser."""
 
     request_id: str
     url: str
     risk_score: float
-    decision: DecisionDetails
+    action: str
+    risk_level: str
+    reason: str
     signals: SignalDetails
-    versions: VersionDetails
+    model_version: str
 
 
 class BatchPredictionResponse(BaseModel):

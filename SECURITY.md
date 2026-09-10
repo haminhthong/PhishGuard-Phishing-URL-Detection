@@ -16,10 +16,10 @@ Các mối đe dọa ngoài phạm vi gồm HTML/DOM/JavaScript độc hại, fi
 ## Artifact và runtime
 
 - API chỉ nạp XGBoost Native JSON từ `artifacts/model.json`; không nạp pickle/joblib.
-- `metadata.json` kiểm tra model checksum, feature contract/hash và resource hashes.
+- `metadata.json` kiểm tra model version, feature contract và số lượng feature.
 - `calibration.json` phải cùng `model_version` với model.
 - `thresholds.json` phải có đúng `caution_threshold`, `block_threshold` và mapping `allow/caution/block`.
-- Thiếu artifact, sai checksum, sai contract hoặc sai resource version đều làm API fail-closed.
+- Thiếu artifact, model không đọc được, sai contract, calibrator hoặc thresholds đều khiến API trả lỗi 503; hệ thống không trả `ALLOW` giả khi model chưa sẵn sàng.
 
 ## Báo cáo lỗ hổng
 

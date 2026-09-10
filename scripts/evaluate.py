@@ -1,4 +1,4 @@
-"""Đánh giá locked test và hard slices từ artifact production hiện tại."""
+"""Đánh giá test độc lập và các edge case của PhishGuard."""
 
 from __future__ import annotations
 
@@ -6,16 +6,18 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier
 
-from phishguard.calibration import ActionPolicy, ProbabilityCalibrator
+from phishguard.calibration import DecisionThresholds, ProbabilityCalibrator
 from phishguard.features import FEATURE_COLUMNS, FeatureExtractor
 from phishguard.training.evaluation import classification_metrics
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 SPLITS_DIR = ARTIFACTS_DIR / "splits"
+EVALUATION_DIR = PROJECT_ROOT / "evaluation"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -23,62 +25,88 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 def read_split(name: str) -> pd.DataFrame:
+    """Đọc Parquet, hoặc CSV nén nếu môi trường thiếu engine Parquet."""
     parquet_path = SPLITS_DIR / f"{name}.parquet"
+    csv_path = SPLITS_DIR / f"{name}.csv.gz"
     if parquet_path.exists():
         return pd.read_parquet(parquet_path)
-    return pd.read_csv(SPLITS_DIR / f"{name}.csv.gz")
+    return pd.read_csv(csv_path)
+
+
+def read_jsonl(path: Path) -> pd.DataFrame:
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    return pd.DataFrame(rows)
 
 
 def score_frame(
     frame: pd.DataFrame, model: XGBClassifier, calibrator: ProbabilityCalibrator
-) -> tuple[pd.DataFrame, pd.Series]:
+) -> np.ndarray:
+    """Trích xuất 25 feature, dự đoán và hiệu chuẩn điểm rủi ro."""
     url_column = "raw_url" if "raw_url" in frame.columns else "url"
     features = pd.DataFrame(
         [FeatureExtractor().extract(url) for url in frame[url_column]],
         columns=FEATURE_COLUMNS,
     )
-    scores = pd.Series(calibrator.calibrate(model.predict_proba(features)[:, 1]))
-    return features, scores
+    return np.asarray(calibrator.calibrate(model.predict_proba(features)[:, 1]))
 
 
-def main(release_dir: Path | None = None) -> None:
-    artifact_dir = (release_dir or ARTIFACTS_DIR).resolve()
+def evaluate_frame(
+    frame: pd.DataFrame,
+    scores: np.ndarray,
+    thresholds: DecisionThresholds,
+) -> dict[str, object]:
+    """Tạo báo cáo cho một tập có nhãn để phân tích kết quả."""
+    predictions = (scores >= thresholds.block_threshold).astype(int)
+    report: dict[str, object] = {
+        "cases": int(len(frame)),
+        "metrics": classification_metrics(frame["label"], predictions, scores),
+        "block_threshold": thresholds.block_threshold,
+    }
+    if "slice" in frame.columns:
+        report["slices"] = {
+            str(slice_name): classification_metrics(
+                group["label"],
+                predictions[group.index.to_numpy()],
+                scores[group.index.to_numpy()],
+            )
+            for slice_name, group in frame.groupby("slice")
+        }
+    return report
+
+
+def main() -> None:
+    """Đánh giá test và edge cases, chỉ ghi báo cáo phân tích."""
     model = XGBClassifier()
-    model.load_model(artifact_dir / "model.json")
-    metadata = json.loads((artifact_dir / "metadata.json").read_text(encoding="utf-8"))
-    calibration = json.loads((artifact_dir / "calibration.json").read_text(encoding="utf-8"))
-    thresholds = json.loads((artifact_dir / "thresholds.json").read_text(encoding="utf-8"))
+    model.load_model(ARTIFACTS_DIR / "model.json")
+    metadata = json.loads((ARTIFACTS_DIR / "metadata.json").read_text(encoding="utf-8"))
+    calibration = json.loads((ARTIFACTS_DIR / "calibration.json").read_text(encoding="utf-8"))
+    thresholds = DecisionThresholds.from_dict(
+        json.loads((ARTIFACTS_DIR / "thresholds.json").read_text(encoding="utf-8"))
+    )
     calibrator = ProbabilityCalibrator(
         method=str(calibration["method"]),
         params=dict(calibration["calibrator_params"]),
     )
-    policy = ActionPolicy.from_dict(thresholds)
+
     test = read_split("test")
-    _, scores = score_frame(test, model, calibrator)
-    predictions = (scores >= policy.block_threshold).astype(int)
-    report = {
+    report: dict[str, object] = {
         "model_version": metadata["model_version"],
         "feature_contract": metadata["feature_contract"],
-        "locked_test": classification_metrics(test["label"], predictions, scores),
+        "test": evaluate_frame(test, score_frame(test, model, calibrator), thresholds),
+        "edge_cases": {},
     }
+    edge_cases = report["edge_cases"]
+    assert isinstance(edge_cases, dict)
     for name in ("hard_dev", "hard_locked_test"):
-        path = PROJECT_ROOT / "evaluation" / f"{name}.jsonl"
-        if not path.exists():
-            continue
-        frame = pd.DataFrame(
-            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line
-        )
-        _, slice_scores = score_frame(frame, model, calibrator)
-        frame["prediction"] = (slice_scores >= policy.block_threshold).astype(int)
-        report[name] = {
-            "metrics": classification_metrics(frame["label"], frame["prediction"], slice_scores),
-            "slices": {
-                str(slice_name): classification_metrics(
-                    group["label"], group["prediction"], slice_scores[group.index]
-                )
-                for slice_name, group in frame.groupby("slice")
-            },
-        }
+        path = EVALUATION_DIR / f"{name}.jsonl"
+        if path.exists():
+            frame = read_jsonl(path)
+            edge_cases[name] = evaluate_frame(
+                frame,
+                score_frame(frame, model, calibrator),
+                thresholds,
+            )
+
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     output = REPORTS_DIR / "evaluation.json"
     output.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")

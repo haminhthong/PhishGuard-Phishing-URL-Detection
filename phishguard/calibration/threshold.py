@@ -1,4 +1,4 @@
-"""Tối ưu hóa ngưỡng vận hành (Operating Threshold Optimization) trên tập Calibration."""
+"""Tối ưu hóa ngưỡng vận hành trên tập threshold validation."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import confusion_matrix
 
-from .policy import ActionPolicy
+from .policy import DecisionThresholds
 
 
 def sweep_operating_threshold(
@@ -81,7 +81,7 @@ def sweep_operating_threshold(
     }
 
 
-def select_action_policy(
+def select_decision_thresholds(
     y_true: Any,
     calibrated_scores: Any,
     *,
@@ -89,9 +89,8 @@ def select_action_policy(
     block_max_fpr: float = 0.005,
     caution_min_recall: float = 0.90,
     block_min_recall: float = 0.80,
-    policy_version: str = "browser-risk-v1",
 ) -> dict[str, Any]:
-    """Chọn hai ngưỡng trên Policy Validation độc lập với Calibration.
+    """Chọn hai ngưỡng trên threshold validation độc lập với calibration.
 
     Caution được phép nhạy hơn vì chỉ hiển thị cảnh báo mềm. Block phải giữ FPR
     thấp hơn để hạn chế chặn nhầm. Không dùng cost giả định để quyết định hành
@@ -136,9 +135,7 @@ def select_action_policy(
         if caution["threshold"] < block["threshold"]
     ]
     if not pairs:
-        raise ValueError(
-            "POLICY_NOT_RELEASABLE: không đạt đồng thời FPR, minimum recall và thứ tự ngưỡng"
-        )
+        raise ValueError("Không tìm được cặp threshold thỏa FPR, recall và thứ tự ngưỡng")
 
     # Chọn cặp đồng thời: ưu tiên caution recall, sau đó block recall; cuối cùng
     # ưu tiên threshold cao hơn để giảm cảnh báo/chặn nhầm trong các trường hợp hòa.
@@ -152,13 +149,12 @@ def select_action_policy(
         ),
     )
 
-    policy = ActionPolicy(
+    thresholds = DecisionThresholds(
         caution_threshold=round(caution["threshold"], 6),
         block_threshold=round(block["threshold"], 6),
-        policy_version=policy_version,
     )
     return {
-        "policy": policy.to_dict(),
+        "thresholds": thresholds.to_dict(),
         "caution_metrics": caution,
         "block_metrics": block,
         "constraints": {

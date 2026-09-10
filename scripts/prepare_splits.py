@@ -117,11 +117,7 @@ def main() -> None:
             "domains": int(split["domain"].nunique()),
             "positive_rate": round(float(split["label"].mean()), 6),
         }
-        canonical_name = {
-            "validation": "development",
-            "test": "locked_test",
-        }.get(name, name)
-        split_manifest["splits"][canonical_name] = stats
+        split_manifest["splits"][name] = stats
         print(
             f" • {name:18s}: {len(split):,} rows | "
             f"{split['domain'].nunique():,} domains | positive={split['label'].mean():.2%}"

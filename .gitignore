@@ -59,14 +59,9 @@ artifacts/model.json
 artifacts/metadata.json
 artifacts/calibration.json
 artifacts/thresholds.json
-artifacts/feature_contract.json
 artifacts/training_report.json
-artifacts/edge_case_metrics.json
+artifacts/source_bias_report.json
 reports/
-releases/
-
-# Candidate có thể lớn; chỉ commit code, manifest mẫu và report đã chọn.
-releases/candidates/*/model.json
 
 # IDE files
 .vscode/

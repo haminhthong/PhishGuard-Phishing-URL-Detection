@@ -1,13 +1,13 @@
 """Gói hiệu chuẩn xác suất và chính sách rủi ro (Calibration & Policy) PhishGuard ML."""
 
-from .policy import ActionPolicy, CalibrationArtifact
+from .policy import CalibrationArtifact, DecisionThresholds
 from .probability import ProbabilityCalibrator
-from .threshold import select_action_policy, sweep_operating_threshold
+from .threshold import select_decision_thresholds, sweep_operating_threshold
 
 __all__ = [
     "CalibrationArtifact",
-    "ActionPolicy",
-    "select_action_policy",
+    "DecisionThresholds",
+    "select_decision_thresholds",
     "ProbabilityCalibrator",
     "sweep_operating_threshold",
 ]

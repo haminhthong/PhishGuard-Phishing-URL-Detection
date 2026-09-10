@@ -1,7 +1,4 @@
-"""
-Bộ kiểm thử tích hợp (Integration Tests) mở rộng cho PhishGuard ML FastAPI endpoints.
-Kiểm tra toàn bộ REST API contract, validation schema, error code contract, LRU Cache, concurrency và Batch Prediction.
-"""
+"""Kiểm thử contract và validation của FastAPI."""
 
 from __future__ import annotations
 
@@ -47,19 +44,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("model_version", json_data)
         self.assertEqual(json_data["feature_count"], 25)
         self.assertEqual(json_data["feature_contract"], "lexical-v4")
-        self.assertIn("action_policy", json_data)
-
-    def test_model_info_endpoint(self) -> None:
-        """Kiểm tra endpoint /model-info công bố hợp đồng đặc trưng và version."""
-        response = self.client.get("/model-info")
-        self.assertEqual(response.status_code, 200)
-        json_data = response.json()
-        self.assertEqual(json_data["feature_count"], 25)
-        self.assertEqual(len(json_data["features"]), json_data["feature_count"])
-        self.assertEqual(json_data["feature_contract"], "lexical-v4")
+        self.assertIn("thresholds", json_data)
+        self.assertTrue(json_data["calibration_loaded"])
 
     def test_prediction_response_contract_for_valid_url(self) -> None:
-        """Kiểm tra schema phản hồi canonical: risk_score, decision và versions."""
+        """Kiểm tra schema phẳng gồm điểm, hành động và tín hiệu giải thích."""
         response = self.client.post(
             SCORE_ROUTE,
             json={"url": "https://google.com"},
@@ -68,10 +57,9 @@ class ApiContractTests(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["url"], "https://google.com")
         self.assertIn("risk_score", data)
-        self.assertIn(data["decision"]["risk_level"], {"HIGH", "MEDIUM", "LOW"})
-        self.assertIn(data["decision"]["action"], {"ALLOW", "CAUTION", "BLOCK"})
-        self.assertNotIn("release", data["versions"])
-        self.assertEqual(data["versions"]["feature_contract"], "lexical-v4")
+        self.assertIn(data["risk_level"], {"HIGH", "MEDIUM", "LOW"})
+        self.assertIn(data["action"], {"ALLOW", "CAUTION", "BLOCK"})
+        self.assertEqual(data["model_version"], "4.0.0")
 
     def test_batch_prediction_endpoint(self) -> None:
         """Kiểm tra endpoint canonical POST /v1/score/batch."""
@@ -144,8 +132,9 @@ class ApiContractTests(unittest.TestCase):
 
     def test_missing_model_file_throws_error(self) -> None:
         """Model loader từ chối mở file mô hình không tồn tại."""
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(PhishGuardAPIException) as context:
             load_phishguard_model(Path("non_existent_model.json"), Path("non_existent_meta.json"))
+        self.assertEqual(context.exception.status_code, 503)
 
     def test_reject_pickle_model_format(self) -> None:
         """Model loader từ chối định dạng pickle (.pkl) để tránh rủi ro bảo mật."""
@@ -164,26 +153,15 @@ class ApiContractTests(unittest.TestCase):
         response = self.client.post(BATCH_SCORE_ROUTE, json={"urls": urls})
         self.assertEqual(response.status_code, 200)
 
-    def test_liveness_and_readiness_endpoints(self) -> None:
-        """Kiểm tra các endpoint liveness (/health/live) và readiness (/health/ready)."""
-        live_res = self.client.get("/health/live")
-        self.assertEqual(live_res.status_code, 200)
-        self.assertEqual(live_res.json()["status"], "live")
-
-        ready_res = self.client.get("/health/ready")
-        self.assertEqual(ready_res.status_code, 200)
-        ready_data = ready_res.json()
-        self.assertEqual(ready_data["status"], "ready")
-        self.assertIn("model_version", ready_data)
-        self.assertIn("action_policy", ready_data)
-
     def test_decoupled_model_and_risk_policy_response_structure(self) -> None:
-        """Kiểm tra API chỉ trả canonical risk score và browser decision."""
+        """Kiểm tra API trả điểm rủi ro, action và tín hiệu lexical."""
         res = self.client.post(SCORE_ROUTE, json={"url": "https://paypal.com"})
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertIn("risk_score", data)
-        self.assertEqual(set(data["decision"]), {"action", "risk_level", "reason"})
+        self.assertIn(data["action"], {"ALLOW", "CAUTION", "BLOCK"})
+        self.assertIn(data["risk_level"], {"HIGH", "MEDIUM", "LOW"})
+        self.assertIn("reason", data)
         self.assertEqual(
             set(data["signals"]), {"punycode", "brand_mismatch", "shortener", "suspicious_tld"}
         )

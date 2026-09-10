@@ -13,17 +13,14 @@ import pandas as pd
 
 from API.services.predictor import safe_log_host
 from phishguard.calibration import (
-    ActionPolicy,
     CalibrationArtifact,
+    DecisionThresholds,
     ProbabilityCalibrator,
-    select_action_policy,
+    select_decision_thresholds,
     sweep_operating_threshold,
 )
 from phishguard.features import FEATURE_COLUMNS, FEATURE_CONTRACT_VERSION, extract_features
-from phishguard.training.data import (
-    clean_dataset,
-    split_by_domain,
-)
+from phishguard.training.data import clean_dataset, split_by_domain
 
 
 class LifecycleInvariantsTests(unittest.TestCase):
@@ -129,8 +126,8 @@ class LifecycleInvariantsTests(unittest.TestCase):
 
     def test_test_never_used_for_threshold_selection(self) -> None:
         """
-        Bất biến 6 (P0.5): Ngưỡng vận hành phải được chọn trên tập Calibration,
-        tập Test là untouched và chỉ dùng để tính báo cáo (Report Only).
+        Bất biến 6 (P0.5): Ngưỡng vận hành phải được chọn trên threshold validation,
+        tập Test chỉ dùng để tính báo cáo.
         """
         y_cal = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
         cal_scores = np.array([0.05, 0.1, 0.15, 0.2, 0.35, 0.6, 0.7, 0.8, 0.9, 0.95])
@@ -200,20 +197,20 @@ class LifecycleInvariantsTests(unittest.TestCase):
         self.assertEqual(len(FEATURE_COLUMNS), 25)
         self.assertEqual(FEATURE_CONTRACT_VERSION, "lexical-v4")
 
-    def test_action_policy_is_the_canonical_browser_decision(self) -> None:
-        """Bất biến P0: browser chỉ nhận allow/caution/block từ một policy."""
-        policy = ActionPolicy(caution_threshold=0.40, block_threshold=0.80)
+    def test_decision_thresholds_are_the_browser_decision(self) -> None:
+        """Bất biến P0: browser chỉ nhận allow/caution/block từ thresholds."""
+        policy = DecisionThresholds(caution_threshold=0.40, block_threshold=0.80)
         self.assertEqual(policy.evaluate(0.39), ("low", "allow"))
         self.assertEqual(policy.evaluate(0.40), ("medium", "caution"))
         self.assertEqual(policy.evaluate(0.80), ("high", "block"))
         with self.assertRaises(ValueError):
             policy.evaluate(float("nan"))
 
-    def test_action_policy_selects_compatible_threshold_pair(self) -> None:
-        """Bất biến P0: caution và block phải đạt gate đồng thời và có thứ tự hợp lệ."""
+    def test_decision_thresholds_select_compatible_pair(self) -> None:
+        """Bất biến P0: caution và block phải có thứ tự hợp lệ."""
         y_true = np.array([0, 0, 0, 0, 1, 1, 1, 1])
         scores = np.array([0.01, 0.02, 0.03, 0.04, 0.80, 0.85, 0.90, 0.95])
-        selection = select_action_policy(
+        selection = select_decision_thresholds(
             y_true,
             scores,
             caution_max_fpr=0.25,
@@ -221,7 +218,7 @@ class LifecycleInvariantsTests(unittest.TestCase):
             caution_min_recall=0.90,
             block_min_recall=0.80,
         )
-        policy = selection["policy"]
+        policy = selection["thresholds"]
         self.assertLess(policy["caution_threshold"], policy["block_threshold"])
         self.assertGreaterEqual(selection["caution_metrics"]["recall"], 0.90)
         self.assertGreaterEqual(selection["block_metrics"]["recall"], 0.80)

@@ -1,4 +1,4 @@
-"""Dịch vụ suy luận URL với một ActionPolicy duy nhất."""
+"""Dịch vụ suy luận URL và áp dụng ngưỡng quyết định."""
 
 from __future__ import annotations
 
@@ -34,19 +34,18 @@ class PredictorService:
         self.loaded_model = loaded_model
         self.model = loaded_model.model
         self.calibrator = loaded_model.calibrator
-        self.action_policy = loaded_model.action_policy
+        self.thresholds = loaded_model.thresholds
         self.feature_extractor = loaded_model.feature_extractor
         self.model_version = loaded_model.model_version
-        self.policy_version = loaded_model.policy_version
         self.feature_contract = loaded_model.feature_contract
         self.feature_columns = FEATURE_COLUMNS
 
-    def evaluate_action_policy(self, score: float) -> tuple[str, str]:
-        """Ủy quyền hoàn toàn quyết định cho ActionPolicy đã được checksum."""
-        return self.action_policy.evaluate(score)
+    def evaluate_thresholds(self, score: float) -> tuple[str, str]:
+        """Áp dụng đúng cặp ngưỡng đã chọn trên threshold validation."""
+        return self.thresholds.evaluate(score)
 
     def predict_url(self, url: str) -> dict[str, Any]:
-        """Trả canonical risk score và browser decision từ cùng một policy."""
+        """Trả risk score và browser decision từ cùng một cặp thresholds."""
         try:
             features = self.feature_extractor.extract(url)
             input_frame = pd.DataFrame([features], columns=self.feature_columns)
@@ -61,7 +60,7 @@ class PredictorService:
         try:
             raw_score = float(self.model.predict_proba(input_frame)[0, 1])
             risk_score = round(float(self.calibrator.calibrate(raw_score)), 4)
-            risk_level, action = self.evaluate_action_policy(risk_score)
+            risk_level, action = self.evaluate_thresholds(risk_score)
         except Exception as error:
             LOGGER.exception("Dự đoán thất bại cho hostname=%s", safe_log_host(url))
             raise PhishGuardAPIException(
@@ -74,30 +73,22 @@ class PredictorService:
             "request_id": str(uuid4()),
             "url": url,
             "risk_score": risk_score,
-            "decision": {
-                "action": action.upper(),
-                "risk_level": risk_level.upper(),
-                "reason": ACTION_REASONS[action],
-            },
+            "action": action.upper(),
+            "risk_level": risk_level.upper(),
+            "reason": ACTION_REASONS[action],
             "signals": {
                 "punycode": bool(features.get("has_punycode", 0)),
                 "brand_mismatch": bool(features.get("brand_not_registered_domain", 0)),
                 "shortener": bool(features.get("uses_shortening_service", 0)),
                 "suspicious_tld": bool(features.get("is_suspicious_tld", 0)),
             },
-            "versions": {
-                "model": self.model_version,
-                "feature_contract": self.feature_contract,
-                "feature_contract_hash": self.loaded_model.feature_contract_hash,
-                "policy": self.policy_version,
-            },
+            "model_version": self.model_version,
         }
         LOGGER.info(
-            "Predicted hostname=%s score=%.4f action=%s policy=%s",
+            "Predicted hostname=%s score=%.4f action=%s",
             safe_log_host(url),
             risk_score,
             action,
-            self.policy_version,
         )
         return result
 

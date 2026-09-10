@@ -6,8 +6,6 @@ fallback có thể tạo train-serving skew mà người vận hành không nh�
 
 from __future__ import annotations
 
-import hashlib
-import importlib.metadata
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,15 +15,6 @@ RESOURCES_DIR = Path(__file__).resolve().parents[2] / "resources"
 BRAND_TERMS_FILENAME = "brand_terms.json"
 SHORTENER_DOMAINS_FILENAME = "shortener_domains.json"
 SUSPICIOUS_TLDS_FILENAME = "suspicious_tlds.json"
-
-
-def sha256_file(path: Path) -> str:
-    """Tính SHA-256 theo byte của một tài nguyên."""
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(65536), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -43,14 +32,11 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class ResourceBundle:
-    """Bộ tài nguyên đã được kiểm tra schema và checksum."""
+    """Bộ tài nguyên lexical được kiểm tra schema khi khởi động."""
 
     brands: tuple[dict[str, Any], ...]
     shorteners: frozenset[str]
     suspicious_tlds: frozenset[str]
-    versions: dict[str, str]
-    hashes: dict[str, str]
-    tld_library_version: str
 
 
 def load_resource_bundle(resources_dir: Path = RESOURCES_DIR) -> ResourceBundle:
@@ -84,17 +70,6 @@ def load_resource_bundle(resources_dir: Path = RESOURCES_DIR) -> ResourceBundle:
         brands=tuple(brands),
         shorteners=frozenset(str(item).lower().strip() for item in shorteners),
         suspicious_tlds=frozenset(str(item).lower().strip(".") for item in suspicious_tlds),
-        versions={
-            "brand_terms": str(brand_data["version"]),
-            "shorteners": str(shortener_data["version"]),
-            "suspicious_tlds": str(tld_data["version"]),
-        },
-        hashes={
-            "brand_terms": sha256_file(brand_path),
-            "shorteners": sha256_file(shortener_path),
-            "suspicious_tlds": sha256_file(tld_path),
-        },
-        tld_library_version=importlib.metadata.version("tld"),
     )
 
 

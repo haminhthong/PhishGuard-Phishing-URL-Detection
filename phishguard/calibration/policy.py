@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass
 class CalibrationArtifact:
-    """Artifact chỉ lưu calibrator và metric; threshold thuộc ActionPolicy."""
+    """Artifact chỉ lưu calibrator và metric; threshold lưu riêng."""
 
     method: str
     ece_before: float
@@ -34,8 +34,8 @@ class CalibrationArtifact:
 
 
 @dataclass(frozen=True)
-class ActionPolicy:
-    """Nguồn sự thật duy nhất cho quyết định ALLOW/CAUTION/BLOCK.
+class DecisionThresholds:
+    """Ngưỡng duy nhất để ánh xạ điểm rủi ro thành hành động trình duyệt.
 
     `caution_threshold` và `block_threshold` phải được chọn trên tập
     Validation độc lập. Điểm thấp chỉ có nghĩa là rủi ro lexical thấp, không
@@ -44,13 +44,10 @@ class ActionPolicy:
 
     caution_threshold: float
     block_threshold: float
-    policy_version: str = "browser-risk-v1"
 
     def __post_init__(self) -> None:
         if not (0.0 <= self.caution_threshold < self.block_threshold <= 1.0):
-            raise ValueError("Ngưỡng ActionPolicy phải thỏa 0.0 <= caution < block <= 1.0")
-        if not self.policy_version.strip():
-            raise ValueError("policy_version không được để trống")
+            raise ValueError("Ngưỡng phải thỏa 0.0 <= caution < block <= 1.0")
 
     def evaluate(self, score: float) -> tuple[str, str]:
         """Trả về mức rủi ro và đúng một hành động sản phẩm."""
@@ -65,27 +62,25 @@ class ActionPolicy:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "policy_version": self.policy_version,
             "caution_threshold": self.caution_threshold,
             "block_threshold": self.block_threshold,
             "actions": {"low": "allow", "medium": "caution", "high": "block"},
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ActionPolicy:
-        """Nạp policy với schema cố định, không fallback sang key legacy."""
+    def from_dict(cls, data: dict[str, Any]) -> DecisionThresholds:
+        """Nạp ngưỡng với schema cố định."""
         caution = data.get("caution_threshold")
         block = data.get("block_threshold")
         if caution is None or block is None:
-            raise ValueError("Action policy thiếu caution_threshold hoặc block_threshold")
+            raise ValueError("Thresholds thiếu caution_threshold hoặc block_threshold")
         actions = data.get("actions", {})
         expected_actions = {"low": "allow", "medium": "caution", "high": "block"}
         if actions and any(
             actions.get(level, action) != action for level, action in expected_actions.items()
         ):
-            raise ValueError("Action policy phải ánh xạ low/medium/high thành allow/caution/block")
+            raise ValueError("Thresholds phải ánh xạ low/medium/high thành allow/caution/block")
         return cls(
             caution_threshold=float(caution),
             block_threshold=float(block),
-            policy_version=str(data.get("policy_version", "browser-risk-v1")),
         )

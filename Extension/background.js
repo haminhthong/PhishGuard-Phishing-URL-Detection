@@ -93,7 +93,7 @@ function updateToolbarBadge(tabId, statusText, colorHex) {
 /**
  * Lưu vết kết quả quét URL đã làm sạch vào lịch sử (Tối đa 10 mục mới nhất).
  */
-async function recordScanHistory(url, action, riskScore, riskLevel, policyVersion) {
+async function recordScanHistory(url, action, riskScore, riskLevel, modelVersion) {
     try {
         const data = await chrome.storage.local.get(KEYS.scanHistory);
         let history = data[KEYS.scanHistory] || [];
@@ -103,7 +103,7 @@ async function recordScanHistory(url, action, riskScore, riskLevel, policyVersio
             action,
             score_bucket: Math.min(10, Math.floor(Number(riskScore || 0) * 10)),
             risk_level: riskLevel,
-            policy_version: policyVersion || "unknown",
+            model_version: modelVersion || "unknown",
             timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
         };
         history = history.filter(item => item.url !== sanitizedUrl);
@@ -250,15 +250,15 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         if (pendingChecks.get(tabId) !== checkToken) return;
 
         const score = Number(result.risk_score);
-        const riskLevel = String(result.decision?.risk_level ?? "").toLowerCase();
-        const riskAction = String(result.decision?.action ?? "").toLowerCase();
-        const policyVersion = result.versions?.policy;
+        const riskLevel = String(result.risk_level ?? "").toLowerCase();
+        const riskAction = String(result.action ?? "").toLowerCase();
+        const modelVersion = result.model_version;
         if (!Number.isFinite(score) || !["allow", "caution", "block"].includes(riskAction)) {
             throw new Error("API thiếu risk score hoặc action policy hợp lệ");
         }
 
         // Chỉ lưu URL đã làm sạch (bỏ query & hash) vào lịch sử để bảo vệ quyền riêng tư
-        await recordScanHistory(tab.url, riskAction, score, riskLevel, policyVersion);
+        await recordScanHistory(tab.url, riskAction, score, riskLevel, modelVersion);
 
         if (riskAction === "block") {
             // BLOCK: Hiển thị cảnh báo và kích hoạt interstitial.
@@ -269,7 +269,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                 risk_score: score,
                 risk_level: riskLevel,
                 action: "block",
-                policy_version: policyVersion || "unknown"
+                model_version: modelVersion || "unknown"
             }).catch(() => {});
         } else if (riskAction === "caution") {
             // CAUTION: Cảnh báo mềm, không tự động chặn điều hướng.

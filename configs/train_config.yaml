@@ -17,18 +17,14 @@ model:
   learning_rate: 0.08
   n_estimators: 300
   eval_metric: logloss
+  n_jobs: 4
   random_state: 42
 
 calibration:
   method: isotonic # isotonic | sigmoid
 
 threshold_policy:
-  policy_version: browser-risk-v1
   caution_max_fpr: 0.02
   block_max_fpr: 0.005
   caution_min_recall: 0.90
   block_min_recall: 0.80
-
-security_stress:
-  min_block_recall: 0.80
-  max_benign_block_rate: 0.20
