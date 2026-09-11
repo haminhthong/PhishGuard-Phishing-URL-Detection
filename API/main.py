@@ -4,9 +4,15 @@
 
 from __future__ import annotations
 
+import sys
+
 import uvicorn
 
 from API.config import CONFIG
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8")
 
 
 def start() -> None:

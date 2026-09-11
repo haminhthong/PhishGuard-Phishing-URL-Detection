@@ -22,8 +22,8 @@ def select_decision_thresholds(
     """Chọn hai ngưỡng trên threshold validation độc lập với calibration.
 
     Caution được phép nhạy hơn vì chỉ hiển thị cảnh báo mềm. Block phải giữ FPR
-    thấp hơn để hạn chế chặn nhầm. Không dùng cost giả định để quyết định hành
-    động production; cost chỉ là thông tin nhạy cảm trong benchmark.
+    thấp hơn để hạn chế chặn nhầm. Ngưỡng được chọn từ constraint FPR/recall,
+    không gắn với một giả định chi phí ngoài phạm vi browser demo.
     """
     if not (
         0.0 <= block_max_fpr <= caution_max_fpr <= 1.0

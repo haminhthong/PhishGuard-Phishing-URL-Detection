@@ -99,7 +99,7 @@ PhishGuard ML/
 ├── phishguard/
 │   ├── features/                  # contract, extractor, resources
 │   ├── calibration/               # probability và DecisionThresholds
-│   ├── training/                  # clean, split, metrics, baseline
+│   ├── training/                  # clean, split, metrics
 │   └── pipeline.py                # audit -> split -> train -> evaluate
 ├── scripts/                       # audit_data, prepare_splits, train, evaluate
 ├── configs/train_config.yaml

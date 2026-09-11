@@ -13,17 +13,6 @@ from tld import get_fld
 
 
 @dataclass(frozen=True)
-class URLRecord:
-    """Bản ghi URL với định danh rõ ràng giữa raw, canonical và domain."""
-
-    raw_url: str
-    canonical_url: str
-    registered_domain: str
-    label: int
-    submission_time: str | None = None
-
-
-@dataclass(frozen=True)
 class DatasetManifest:
     """Thông tin kiểm toán và nguồn gốc dữ liệu (Provenance & Integrity)."""
 
@@ -36,29 +25,6 @@ class DatasetManifest:
     label_distribution: dict[str, int]
     exact_conflicts_removed: int
     multi_label_domains_preserved: int
-
-
-@dataclass(frozen=True)
-class SplitManifest:
-    """Tóm tắt phân bố dữ liệu và nhãn giữa các tập split (Grouped Split Verification)."""
-
-    seed: int
-    train_rows: int
-    validation_rows: int
-    calibration_rows: int
-    test_rows: int
-    train_domains: int
-    validation_domains: int
-    calibration_domains: int
-    test_domains: int
-    train_positive_rate: float
-    val_positive_rate: float
-    cal_positive_rate: float
-    test_positive_rate: float
-    threshold_validation_rows: int
-    threshold_validation_domains: int
-    threshold_positive_rate: float
-    strategy: str = "stratified-registered-domain-5way"
 
 
 @dataclass(frozen=True)
@@ -337,32 +303,6 @@ def _stratified_group_allocation(
     if any(value.empty for value in result.values()):
         raise ValueError("Không thể tạo split không rỗng với số registered domain hiện tại")
     return result
-
-
-def create_split_manifest(
-    splits: DatasetSplits,
-    seed: int = 42,
-) -> SplitManifest:
-    """Tạo manifest kiểm tra tỷ lệ, domain và nhãn của năm tập."""
-    return SplitManifest(
-        seed=seed,
-        train_rows=len(splits.train),
-        validation_rows=len(splits.validation),
-        calibration_rows=len(splits.calibration),
-        threshold_validation_rows=len(splits.threshold_validation),
-        test_rows=len(splits.test),
-        train_domains=splits.train["domain"].nunique(),
-        validation_domains=splits.validation["domain"].nunique(),
-        calibration_domains=splits.calibration["domain"].nunique(),
-        threshold_validation_domains=splits.threshold_validation["domain"].nunique(),
-        test_domains=splits.test["domain"].nunique(),
-        train_positive_rate=round(float(splits.train["label"].mean()), 4),
-        val_positive_rate=round(float(splits.validation["label"].mean()), 4),
-        cal_positive_rate=round(float(splits.calibration["label"].mean()), 4),
-        threshold_positive_rate=round(float(splits.threshold_validation["label"].mean()), 4),
-        test_positive_rate=round(float(splits.test["label"].mean()), 4),
-        strategy="stratified-registered-domain-5way",
-    )
 
 
 def _assert_disjoint_splits(splits: DatasetSplits) -> None:

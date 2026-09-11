@@ -1,8 +1,4 @@
-"""
-Bộ kiểm thử 13 Bất biến Vòng đời (Lifecycle Invariants) cho PhishGuard ML.
-Đảm bảo ngăn chặn triệt để Data Leakage, Training-Serving Skew, Artifact Mismatch,
-và duy trì tính toàn vẹn bảo mật từ Data Ingestion đến Online Serving.
-"""
+"""Kiểm tra các bất biến của pipeline dữ liệu, feature contract và runtime API."""
 
 from __future__ import annotations
 
@@ -22,7 +18,7 @@ from phishguard.features import FEATURE_COLUMNS, FEATURE_CONTRACT_VERSION, extra
 from phishguard.training.data import clean_dataset, split_by_domain
 
 
-class LifecycleInvariantsTests(unittest.TestCase):
+class PipelineInvariantTests(unittest.TestCase):
     def test_same_raw_url_same_features_train_and_serving(self) -> None:
         """
         Bất biến 1 (P0.1): Cùng một raw URL phải sinh ra vector đặc trưng giống hệt 100%

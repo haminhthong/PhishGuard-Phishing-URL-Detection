@@ -1,4 +1,4 @@
-"""Kiểm tra đầu vào dùng chung, chạy độc lập với model production."""
+"""Kiểm tra đầu vào dùng chung cho API."""
 
 import unittest
 

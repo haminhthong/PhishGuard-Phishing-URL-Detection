@@ -60,7 +60,7 @@ jobs:
           python -m API.main > api.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:5000/health > health.json; then
               break
             fi
