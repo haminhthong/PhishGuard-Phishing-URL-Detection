@@ -12,7 +12,7 @@
       "pr_auc": 0.9720558513449546,
       "false_positive_rate": 0.003964349788760924,
       "false_negative_rate": 0.0897876643073812,
-      "brier_score": 0.012139417348991354,
+      "brier_score": 0.012139417348991351,
       "expected_calibration_error": 0.0039,
       "true_negatives": 34421,
       "false_positives": 137,

@@ -192,7 +192,7 @@ class PipelineInvariantTests(unittest.TestCase):
 
     def test_api_artifact_version_matches_metadata(self) -> None:
         """
-        Bất biến 11: Feature contract v2 legacy có đúng 25 tên đặc trưng.
+        Bất biến 11: Feature contract lexical-v4 có đúng 25 tên đặc trưng.
         """
         self.assertEqual(len(FEATURE_COLUMNS), 25)
         self.assertEqual(FEATURE_CONTRACT_VERSION, "lexical-v4")

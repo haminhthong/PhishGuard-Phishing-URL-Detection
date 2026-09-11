@@ -21,7 +21,7 @@ class RouteRegistrationTests(unittest.TestCase):
     """Kiểm tra route canonical không cần nạp model."""
 
     def test_canonical_prediction_routes_are_registered(self) -> None:
-        route_paths = {route.path for route in app.routes}
+        route_paths = set(app.openapi()["paths"].keys())
         self.assertIn(SCORE_ROUTE, route_paths)
         self.assertIn(BATCH_SCORE_ROUTE, route_paths)
         self.assertNotIn("/phish-url-prediction", route_paths)

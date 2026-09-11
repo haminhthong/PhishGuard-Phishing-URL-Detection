@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import ParseResult, urlparse
 
+import pandas as pd
 from tld import get_fld, get_tld
 
 from .contract import FEATURE_COLUMNS, FEATURE_CONTRACT_VERSION
@@ -290,3 +291,28 @@ class FeatureExtractor:
         if self.contract != FEATURE_CONTRACT_VERSION:
             raise ValueError(f"Chỉ hỗ trợ feature contract {FEATURE_CONTRACT_VERSION}")
         return extract_features(url, resources=self.resources)
+
+    def extract_frame(
+        self,
+        frame: pd.DataFrame,
+        url_column: str | None = None,
+    ) -> pd.DataFrame:
+        """Trích xuất 25 đặc trưng cho DataFrame URLs theo đúng thứ tự FEATURE_COLUMNS."""
+        target_col = url_column or ("raw_url" if "raw_url" in frame.columns else "url")
+        if target_col not in frame.columns:
+            raise KeyError(f"DataFrame thiếu cột URL ('{target_col}' hoặc 'raw_url'/'url')")
+        return pd.DataFrame(
+            [self.extract(url) for url in frame[target_col]],
+            columns=FEATURE_COLUMNS,
+        )
+
+
+def extract_features_dataframe(
+    frame: pd.DataFrame,
+    url_column: str | None = None,
+    resources: ResourceBundle = RESOURCE_BUNDLE,
+    contract: str = FEATURE_CONTRACT_VERSION,
+) -> pd.DataFrame:
+    """Trích xuất DataFrame 25 đặc trưng tiện ích dùng chung."""
+    extractor = FeatureExtractor(contract=contract, resources=resources)
+    return extractor.extract_frame(frame, url_column=url_column)

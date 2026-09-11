@@ -42,15 +42,6 @@ def load_split(name: str) -> pd.DataFrame:
     raise FileNotFoundError(f"Không tìm thấy split {name} trong {SPLITS_DIR}")
 
 
-def build_features(frame: pd.DataFrame, extractor: FeatureExtractor) -> pd.DataFrame:
-    """Luôn lấy feature từ raw_url, không lấy từ canonical_url."""
-    url_column = "raw_url" if "raw_url" in frame.columns else "url"
-    return pd.DataFrame(
-        [extractor.extract(url) for url in frame[url_column]],
-        columns=FEATURE_COLUMNS,
-    )
-
-
 def write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -79,7 +70,7 @@ def main() -> None:
         name: load_split(name)
         for name in ("train", "validation", "calibration", "threshold_validation")
     }
-    features = {name: build_features(frame, extractor) for name, frame in frames.items()}
+    features = {name: extractor.extract_frame(frame) for name, frame in frames.items()}
     labels = {name: frame["label"].to_numpy() for name, frame in frames.items()}
 
     model_config = config.get("model", {})

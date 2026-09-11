@@ -84,6 +84,33 @@ def registered_domain(url: str) -> str:
     return (domain or "").lower().rstrip(".")
 
 
+def _clean_and_deduplicate_urls(df: pd.DataFrame) -> tuple[pd.DataFrame, int, int, int]:
+    """Chuẩn hóa, loại URL lỗi, loại bỏ exact label conflicts và deduplicate."""
+    df_clean = df.copy()
+    df_clean["canonical_url"] = df_clean["raw_url"].map(normalize_url)
+    invalid_mask = df_clean["canonical_url"] == ""
+    invalid_count = int(invalid_mask.sum())
+    valid_df = df_clean[~invalid_mask].copy()
+
+    # Xử lý Exact Canonical URL Label Conflicts: chỉ loại khi cùng 1 canonical url mang nhãn mâu thuẫn
+    url_label_counts = valid_df.groupby("canonical_url")["label"].nunique()
+    conflicting_canonical_urls = set(url_label_counts[url_label_counts > 1].index)
+    exact_conflicts_removed = int(valid_df["canonical_url"].isin(conflicting_canonical_urls).sum())
+    valid_df = valid_df[~valid_df["canonical_url"].isin(conflicting_canonical_urls)].copy()
+
+    # Deduplication trên canonical_url
+    before_dedup = len(valid_df)
+    valid_df = valid_df.drop_duplicates(subset=["canonical_url"]).copy()
+    duplicate_count = before_dedup - len(valid_df)
+
+    # Trích xuất registered domain
+    valid_df["domain"] = valid_df["canonical_url"].map(registered_domain)
+    valid_df = valid_df[valid_df["domain"] != ""].copy()
+
+    valid_df["url"] = valid_df["raw_url"]
+    return valid_df.reset_index(drop=True), invalid_count, exact_conflicts_removed, duplicate_count
+
+
 def audit_and_clean_data(
     legit_df: pd.DataFrame,
     phishing_df: pd.DataFrame,
@@ -113,37 +140,14 @@ def audit_and_clean_data(
         phishing_clean["submission_time"] = phishing_df["submission_time"]
 
     combined = pd.concat([legit_clean, phishing_clean], ignore_index=True)
+    cleaned_df, invalid_count, exact_conflicts_removed, duplicate_count = (
+        _clean_and_deduplicate_urls(combined)
+    )
 
-    # 1. Canonicalization
-    combined["canonical_url"] = combined["raw_url"].map(normalize_url)
-    invalid_mask = combined["canonical_url"] == ""
-    invalid_count = int(invalid_mask.sum())
-    valid_df = combined[~invalid_mask].copy()
-
-    # 2. Xử lý Exact Canonical URL Label Conflicts:
-    # Chỉ loại bỏ khi CÙNG 1 CANONICAL URL mà mang nhãn mâu thuẫn (0 và 1)
-    url_label_counts = valid_df.groupby("canonical_url")["label"].nunique()
-    conflicting_canonical_urls = set(url_label_counts[url_label_counts > 1].index)
-    exact_conflicts_removed = int(valid_df["canonical_url"].isin(conflicting_canonical_urls).sum())
-    valid_df = valid_df[~valid_df["canonical_url"].isin(conflicting_canonical_urls)].copy()
-
-    # 3. Deduplication trên canonical_url
-    before_dedup = len(valid_df)
-    valid_df = valid_df.drop_duplicates(subset=["canonical_url"]).copy()
-    duplicate_count = before_dedup - len(valid_df)
-
-    # 4. Trích xuất registered domain
-    valid_df["domain"] = valid_df["canonical_url"].map(registered_domain)
-    valid_df = valid_df[valid_df["domain"] != ""].copy()
-
-    # 5. Kiểm tra các domain đa nhãn (Multi-label domains) được BẢO TỒN (google.com, wix.com, dropbox.com, etc.)
-    domain_labels = valid_df.groupby("domain")["label"].nunique()
+    # Kiểm tra các domain đa nhãn (Multi-label domains) được BẢO TỒN (google.com, wix.com, dropbox.com, etc.)
+    domain_labels = cleaned_df.groupby("domain")["label"].nunique()
     multi_label_domains = domain_labels[domain_labels > 1].index.tolist()
-    multi_label_rows = int(valid_df["domain"].isin(multi_label_domains).sum())
-
-    # Đồng bộ trường 'url' trỏ vào raw_url để tương thích ngược 100% với các script và test
-    valid_df["url"] = valid_df["raw_url"]
-    cleaned_df = valid_df.reset_index(drop=True)
+    multi_label_rows = int(cleaned_df["domain"].isin(multi_label_domains).sum())
 
     legit_hash = compute_sha256(legit_path) if legit_path and Path(legit_path).exists() else None
     phish_hash = (
@@ -178,20 +182,8 @@ def clean_dataset(frame: pd.DataFrame) -> pd.DataFrame:
 
     df = frame.loc[:, ["url", "label"]].dropna().copy()
     df.rename(columns={"url": "raw_url"}, inplace=True)
-    df["canonical_url"] = df["raw_url"].map(normalize_url)
-    df = df[df["canonical_url"] != ""].copy()
-
-    # Loại bỏ exact URL conflicts
-    url_label_counts = df.groupby("canonical_url")["label"].nunique()
-    conflicts = set(url_label_counts[url_label_counts > 1].index)
-    df = df[~df["canonical_url"].isin(conflicts)].copy()
-
-    df = df.drop_duplicates(subset=["canonical_url"]).copy()
-    df["domain"] = df["canonical_url"].map(registered_domain)
-    df = df[df["domain"] != ""].copy()
-
-    df["url"] = df["raw_url"]
-    return df.reset_index(drop=True)
+    cleaned_df, _, _, _ = _clean_and_deduplicate_urls(df)
+    return cleaned_df
 
 
 def split_by_domain(

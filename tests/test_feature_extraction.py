@@ -9,9 +9,13 @@ import json
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
 from phishguard.features import (
     FEATURE_COLUMNS,
+    FeatureExtractor,
     extract_features,
+    extract_features_dataframe,
     first_directory_length,
     has_ip_address,
     has_redirection_pattern,
@@ -137,6 +141,25 @@ class FeatureExtractionTests(unittest.TestCase):
         f_normal = extract_features(normal_url)
         self.assertEqual(f_normal["has_punycode"], 0)
         self.assertEqual(f_normal["is_suspicious_tld"], 0)
+
+    def test_extract_frame_and_extract_features_dataframe(self) -> None:
+        """Kiểm tra extract_frame và extract_features_dataframe trích xuất đúng 25 cột."""
+        urls = ["https://example.com/login", "https://google.com/search?q=test"]
+        df_raw = pd.DataFrame({"raw_url": urls})
+        df_url = pd.DataFrame({"url": urls})
+
+        extractor = FeatureExtractor()
+        res_raw = extractor.extract_frame(df_raw)
+        res_url = extract_features_dataframe(df_url)
+
+        self.assertEqual(tuple(res_raw.columns), FEATURE_COLUMNS)
+        self.assertEqual(tuple(res_url.columns), FEATURE_COLUMNS)
+        self.assertEqual(len(res_raw), 2)
+        self.assertEqual(len(res_url), 2)
+
+        # DataFrame thiếu cột URL phải ném KeyError
+        with self.assertRaises(KeyError):
+            extractor.extract_frame(pd.DataFrame({"invalid_column": urls}))
 
 
 if __name__ == "__main__":

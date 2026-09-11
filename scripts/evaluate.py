@@ -11,7 +11,7 @@ import pandas as pd
 from xgboost import XGBClassifier
 
 from phishguard.calibration import DecisionThresholds, ProbabilityCalibrator
-from phishguard.features import FEATURE_COLUMNS, FeatureExtractor
+from phishguard.features import FeatureExtractor
 from phishguard.training.evaluation import classification_metrics
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -39,14 +39,14 @@ def read_jsonl(path: Path) -> pd.DataFrame:
 
 
 def score_frame(
-    frame: pd.DataFrame, model: XGBClassifier, calibrator: ProbabilityCalibrator
+    frame: pd.DataFrame,
+    model: XGBClassifier,
+    calibrator: ProbabilityCalibrator,
+    extractor: FeatureExtractor | None = None,
 ) -> np.ndarray:
     """Trích xuất 25 feature, dự đoán và hiệu chuẩn điểm rủi ro."""
-    url_column = "raw_url" if "raw_url" in frame.columns else "url"
-    features = pd.DataFrame(
-        [FeatureExtractor().extract(url) for url in frame[url_column]],
-        columns=FEATURE_COLUMNS,
-    )
+    fe = extractor or FeatureExtractor()
+    features = fe.extract_frame(frame)
     return np.asarray(calibrator.calibrate(model.predict_proba(features)[:, 1]))
 
 
@@ -87,12 +87,13 @@ def main() -> None:
         method=str(calibration["method"]),
         params=dict(calibration["calibrator_params"]),
     )
+    extractor = FeatureExtractor()
 
     test = read_split("test")
     report: dict[str, object] = {
         "model_version": metadata["model_version"],
         "feature_contract": metadata["feature_contract"],
-        "test": evaluate_frame(test, score_frame(test, model, calibrator), thresholds),
+        "test": evaluate_frame(test, score_frame(test, model, calibrator, extractor), thresholds),
         "edge_cases": {},
     }
     edge_cases = report["edge_cases"]
@@ -103,7 +104,7 @@ def main() -> None:
             frame = read_jsonl(path)
             edge_cases[name] = evaluate_frame(
                 frame,
-                score_frame(frame, model, calibrator),
+                score_frame(frame, model, calibrator, extractor),
                 thresholds,
             )
 

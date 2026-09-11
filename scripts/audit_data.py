@@ -27,10 +27,12 @@ DATASET_MANIFEST_JSON = ARTIFACTS_DIR / "dataset_manifest.json"
 SOURCE_BIAS_JSON = ARTIFACTS_DIR / "source_bias_report.json"
 
 
-def build_source_bias_report(frame: pd.DataFrame) -> dict[str, object]:
+def build_source_bias_report(
+    frame: pd.DataFrame, extractor: FeatureExtractor | None = None
+) -> dict[str, object]:
     """Đo các thuộc tính lexical dễ phân biệt source và label."""
-    url_column = "raw_url" if "raw_url" in frame.columns else "url"
-    features = pd.DataFrame([FeatureExtractor().extract(url) for url in frame[url_column]])
+    fe = extractor or FeatureExtractor()
+    features = fe.extract_frame(frame)
     report: dict[str, object] = {
         "status": "computed",
         "warning": "Source statistics are diagnostic, not evidence of causal phishing signals.",
